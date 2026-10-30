@@ -1,0 +1,2 @@
+add_darling_executable(foundation_objc_startup main.m)
+target_link_libraries(foundation_objc_startup Foundation)

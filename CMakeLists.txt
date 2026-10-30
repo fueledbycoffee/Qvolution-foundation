@@ -338,9 +338,12 @@ endif (TARGET_ARM64)
 
 # Since macOS 14 the Swift Foundation overlay is part of Foundation.framework, so apps bind symbols such as
 # $sSS10FoundationE19_bridgeToObjectiveCSo8NSStringCyF to Foundation. Re-exporting the overlay from
-# src/external/swift (installed as /usr/lib/swift/libswiftFoundation.dylib) makes those binds resolve on both
-# arm64 and x86_64. Runtime dependencies (@rpath/libswiftCore.dylib) are resolved automatically via dyld's
-# built-in fallback to /usr/lib/swift/.
+# src/external/swift supplies the source-built arm64 overlay. The legacy x86_64 overlay is Swift 5.2.2,
+# while the bundled runtime is 6.3.3: eagerly loading it breaks even Objective-C clients before main.
+# Keep that re-export opt-in until a matching x86_64 overlay is available. Apps that explicitly need
+# the legacy Swift overlay remain unsupported; disabling the re-export does not supply their Swift ABI.
+option(DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY
+    "Eagerly re-export the legacy x86_64 Swift Foundation overlay" OFF)
 set(SWIFT_FOUNDATION_OVERLAY "${CMAKE_SOURCE_DIR}/src/external/swift/libswiftFoundation.dylib")
 if (EXISTS "${SWIFT_FOUNDATION_OVERLAY}")
 if (TARGET_ARM64)
@@ -349,12 +352,12 @@ set_property(
 	LINK_FLAGS " -Wl,-reexport_library,${SWIFT_FOUNDATION_OVERLAY}"
 )
 endif (TARGET_ARM64)
-if (TARGET_x86_64)
+if (TARGET_x86_64 AND DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY)
 set_property(
 	TARGET Foundation_x86_64 APPEND_STRING PROPERTY
 	LINK_FLAGS " -Wl,-reexport_library,${SWIFT_FOUNDATION_OVERLAY}"
 )
-endif (TARGET_x86_64)
+endif (TARGET_x86_64 AND DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY)
 endif ()
 
 add_darling_executable(defaults tools/defaults.m)
