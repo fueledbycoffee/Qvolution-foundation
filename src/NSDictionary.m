@@ -166,8 +166,8 @@ OBJC_PROTOCOL_IMPL_PUSH
         {
             id key = [coder decodeObject];
             id object = [coder decodeObject];
-            keys[idx] = [key autorelease];
-            objects[idx] = [object autorelease];
+            keys[idx] = key;
+            objects[idx] = object;
         }
     }
     NSDictionary *dict = nil;
