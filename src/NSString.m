@@ -2765,3 +2765,5 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
     return [[[NSString alloc] initWithCharactersNoCopy:out length:outPos freeWhenDone:YES] autorelease];
 }
 @end
+
+NSStringTransform const NSStringTransformStripDiacritics = @"NFD; [:Nonspacing Mark:] Remove; NFC";

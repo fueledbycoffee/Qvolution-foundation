@@ -7,6 +7,8 @@ typedef unsigned short unichar;
 
 @class NSData, NSArray, NSDictionary, NSCharacterSet, NSURL, NSError, NSLocale;
 
+typedef NSString *NSStringTransform NS_TYPED_EXTENSIBLE_ENUM;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformStripDiacritics;
 FOUNDATION_EXPORT NSString * const NSParseErrorException;
 
 #define NSMaximumStringLength    (INT_MAX-1)
