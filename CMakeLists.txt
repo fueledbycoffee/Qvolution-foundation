@@ -372,6 +372,13 @@ if (TARGET_x86_64 AND DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY)
     if (NOT EXISTS "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
         message(FATAL_ERROR "Matching Swift Foundation overlay does not exist")
     endif ()
+    # use_ld64's install-name mappings must select the same image as the
+    # explicit re-export, including when ld64 follows an indirect dependency.
+    get_property(_matching_foundation_flags TARGET Foundation_x86_64 PROPERTY LINK_FLAGS)
+    string(REPLACE "${SWIFT_FOUNDATION_OVERLAY}"
+        "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}"
+        _matching_foundation_flags "${_matching_foundation_flags}")
+    set_property(TARGET Foundation_x86_64 PROPERTY LINK_FLAGS "${_matching_foundation_flags}")
     set_property(TARGET Foundation_x86_64 APPEND_STRING PROPERTY LINK_FLAGS
         " -Wl,-reexport_library,${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
     set_property(TARGET Foundation_x86_64 APPEND PROPERTY LINK_DEPENDS

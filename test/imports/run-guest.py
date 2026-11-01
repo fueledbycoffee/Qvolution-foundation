@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Container host only: exact scoped dlopen run, no build/install in guest slot."""
-import hashlib,json,os,secrets,stat,subprocess,sys
+import argparse,hashlib,json,os,secrets,stat,subprocess,sys
 from pathlib import Path
 L=Path(os.environ.get('QV_FOUNDATION_LANE', Path(__file__).resolve().parent)).resolve()
 W=L.parent.parent
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--baseline', action='store_true', help='select unmodified source-built Stage41b')
+parser.add_argument('--full-strong', action='store_true', help='use the entire Foundation strong-import manifest')
+options=parser.parse_args()
 record=json.loads((L/'prepared-private.json').read_text())
 root=Path(record['root'])
 assert root == L/'private-install/usr/local/libexec/darling'
@@ -12,7 +16,20 @@ for name,path in {'foundation':L/'superproject/src/external/foundation','swift':
     assert actual==record['commits'][name], 'source changed since private preparation'
     assert not subprocess.check_output(['git','-C',str(path),'status','--porcelain','--untracked-files=all'],text=True).strip(), 'dirty source'
 for relative,digest in record['payload_sha256'].items():
+    assert not (root/relative).is_symlink() and (root/relative).stat().st_nlink==1, relative
     assert hashlib.sha256((root/relative).read_bytes()).hexdigest()==digest, relative
+fixture=record.get('fixture', {'path':str(L/'native-build/load-exports')})
+fixture_path=Path(fixture['path'])
+if 'sha256' in fixture:
+    assert hashlib.sha256(fixture_path.read_bytes()).hexdigest()==fixture['sha256'], 'fixture changed'
+if options.baseline:
+    root=W/'stage41b/usr/local/libexec/darling'
+    assert root.is_dir(), 'source-built baseline install missing'
+    for relative,digest in record.get('baseline_payload_sha256',{}).items():
+        if digest is None:
+            assert not (root/relative).exists(), relative
+        else:
+            assert hashlib.sha256((root/relative).read_bytes()).hexdigest()==digest, relative
 launcher=W/'parallel/stage41/build/src/startup/darling'
 assert not launcher.stat().st_mode & stat.S_ISUID
 run_id=secrets.token_hex(4)
@@ -55,8 +72,8 @@ try:
     owned=prefix/'tmp/imp-foundation'
     owned.mkdir(exist_ok=False)
     import shutil
-    payloads={'load-exports':L/'native-build/load-exports',
-       'Foundation.txt':L/'superproject/src/external/foundation/test/imports/exports.txt',
+    payloads={'load-exports':fixture_path,
+       'Foundation.txt':L/'superproject/src/external/foundation/test/imports'/('strong-exports.txt' if options.full_strong else 'exports.txt'),
        'Darwin.txt':L/'swift/tests/darwin-foundation-imports/exports.txt',
        'swiftFoundation.txt':L/'swift/tests/foundation-imports/exports.txt'}
     for name,source in payloads.items():shutil.copy2(source,owned/name)
@@ -82,7 +99,9 @@ finally:
                 error=str(exc)
                 status=1
     (log/'result.json').write_text(json.dumps({'outcome':'partial' if status==0 else 'failed', 'dlopen_test_passed':status==0,
-       'scope':'provided export subset; remaining nonweak imports are not implemented',
+       'scope':'all strong imports' if options.full_strong else 'provided export subset',
+       'baseline':options.baseline,'runtime_root':str(root),'fixture_sha256':hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
+       'manifest_sha256':{name:hashlib.sha256(source.read_bytes()).hexdigest() for name,source in payloads.items()} if started and 'payloads' in globals() else {},
        'prefix':str(prefix),'steps':results,'prepared':record,'host_guard':host_guard,'error':error},indent=2)+'\n')
     print(log)
 sys.exit(status)

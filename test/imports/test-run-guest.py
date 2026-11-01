@@ -22,7 +22,7 @@ options, remaining = parser.parse_known_args()
 
 
 class HostGuardTests(unittest.TestCase):
-    def exercise(self, mode):
+    def exercise(self, mode, flags=()):
         work = options.scratch.resolve() / secrets.token_hex(5)
         lane = work / 'parallel/imp-foundation'
         lane.mkdir(parents=True)
@@ -31,25 +31,29 @@ class HostGuardTests(unittest.TestCase):
         guard = work / 'dashboard/qv-host-guard'
         guard.parent.mkdir()
         shutil.copy2(options.guard, guard)
+        if mode == 'snapshot-fail':
+            guard.write_text('#!/usr/bin/python3\nimport sys\nsys.exit(2)\n')
         home = work / 'home'
         for folder in ('Documents', 'Desktop', 'Downloads', 'Movies', 'Music', 'Pictures'):
             (home / folder).mkdir(parents=True)
         root = lane / 'private-install/usr/local/libexec/darling'
         root.mkdir(parents=True)
+        (work / 'stage41b/usr/local/libexec/darling').mkdir(parents=True)
         record = {'root': str(root), 'commits': {'foundation': 'test', 'swift': 'test'},
                   'payload_sha256': {}}
         (lane / 'prepared-private.json').write_text(json.dumps(record))
         payloads = ['native-build/load-exports',
                     'superproject/src/external/foundation/test/imports/exports.txt',
+                    'superproject/src/external/foundation/test/imports/strong-exports.txt',
                     'swift/tests/darwin-foundation-imports/exports.txt',
                     'swift/tests/foundation-imports/exports.txt']
         for name in payloads:
             file = lane / name
             file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text('authored test fixture\n')
+            file.write_text('full strong fixture\n' if file.name == 'strong-exports.txt' else 'authored test fixture\n')
         launcher = work / 'parallel/stage41/build/src/startup/darling'
         launcher.parent.mkdir(parents=True)
-        launcher.write_text('''#!/usr/bin/python3
+        launcher.write_text(r'''#!/usr/bin/python3
 import os, sys
 from pathlib import Path
 prefix = Path(os.environ['DPREFIX'])
@@ -63,6 +67,8 @@ elif sys.argv[1] == 'shutdown':
         (Path.home() / 'Pictures/guest-write').write_text('preserve me')
 else:
     assert (prefix / 'initialized').exists()
+    if mode == 'full-strong':
+        assert (prefix / 'tmp/imp-foundation/Foundation.txt').read_text() == 'full strong fixture\n'
     if mode in ('write', 'failed-write'):
         (Path.home() / 'Documents/guest-write').write_text('preserve me')
     if mode == 'failed-write': sys.exit(7)
@@ -73,7 +79,7 @@ else:
             return 'test\n' if 'rev-parse' in args else ''
         with patch.dict(os.environ, HOME=str(home), TEST_MODE=mode), \
              patch.object(subprocess, 'check_output', side_effect=git_result), \
-             patch.object(sys, 'argv', [str(runner)]), \
+             patch.object(sys, 'argv', [str(runner), *flags]), \
              contextlib.redirect_stdout(io.StringIO()):
             try:
                 runpy.run_path(str(runner), run_name='__main__')
@@ -108,6 +114,23 @@ else:
         self.assertEqual(code, 3)
         self.assertEqual(result['host_guard']['verify'], 3)
         self.assertTrue((home / 'Pictures/guest-write').exists())
+
+    def test_snapshot_failure_never_launches(self):
+        code, result, _ = self.exercise('snapshot-fail')
+        self.assertNotEqual(code, 0)
+        self.assertEqual(result['steps'], [])
+        self.assertEqual(result['host_guard'], {'snapshot': 2, 'verify': None})
+
+    def test_baseline_selects_source_built_stage41b(self):
+        code, result, _ = self.exercise('baseline', ['--baseline'])
+        self.assertEqual(code, 0)
+        self.assertTrue(result['baseline'])
+        self.assertTrue(result['runtime_root'].endswith('/stage41b/usr/local/libexec/darling'))
+
+    def test_full_gate_copies_the_full_manifest(self):
+        code, result, _ = self.exercise('full-strong', ['--full-strong'])
+        self.assertEqual(code, 0)
+        self.assertEqual(result['scope'], 'all strong imports')
 
 
 unittest.main(argv=[sys.argv[0], *remaining])

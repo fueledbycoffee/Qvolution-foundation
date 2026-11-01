@@ -44,3 +44,17 @@ requires an unrelated source-built negative control in the same invocation.
 review-error-resource-exports.txt isolates the ten error/resource imports ported
 in the fix round. All names are rung 5 demand facts; availability is not inferred
 from mangled spellings and no Swift ABI is manufactured to satisfy them.
+
+check-cmake-selection.py examines commands from an actual configured Darling
+build, requiring the selected Foundation and Darwin re-export paths to agree
+with both absolute and @rpath install-name mappings. Select the complete matching
+runtime separately as described above; these options do not install it.
+
+For the fleet's prepared private install, compare-runtimes.py --lane <lane>
+acquires a separate guest slot for each guarded runner invocation. It runs the
+identical load-exports executable and subset manifests first on source-built
+Stage41b and then on the candidate, retaining failure/success evidence. It then
+runs that same executable on the candidate with strong-exports.txt. Missing
+strong imports return nonzero and keep the overall result partial even when the
+baseline/candidate subset comparison passes. A bootstrap failure cannot count
+as a baseline regression. No stage is copied and no file is deleted by the runner.
