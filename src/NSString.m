@@ -648,14 +648,26 @@ SINGLETON_RR()
 
 + (const NSStringEncoding *)availableStringEncodings
 {
-#warning TODO https://code.google.com/p/apportable/issues/detail?id=269
-    return nil;
+    // Port of swift-corelibs-foundation NSString.availableStringEncodings.
+    static NSStringEncoding *encodings;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const CFStringEncoding *available = CFStringGetListOfAvailableEncodings();
+        NSUInteger count = 0;
+        while (available[count] != kCFStringEncodingInvalidId) count++;
+        encodings = calloc(count + 1, sizeof(NSStringEncoding));
+        if (encodings == NULL) [NSException raise:NSMallocException format:@"Cannot allocate string encoding list"];
+        for (NSUInteger i = 0; i < count; i++)
+            encodings[i] = CFStringConvertEncodingToNSStringEncoding(available[i]);
+    });
+    return encodings;
 }
 
 + (NSString *)localizedNameOfStringEncoding:(NSStringEncoding)encoding
 {
-#warning TODO https://code.google.com/p/apportable/issues/detail?id=269
-    return nil;
+    // Like the public corelibs implementation, use the CF encoding name.
+    CFStringRef name = CFStringGetNameOfEncoding(CFStringConvertNSStringEncodingToEncoding(encoding));
+    return name != NULL ? (NSString *)name : @"";
 }
 
 + (id)string
