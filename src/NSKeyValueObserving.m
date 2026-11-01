@@ -1305,19 +1305,29 @@ void _NSKeyValueWillChange(id self, id keyOrKeys, BOOL keyOrKeysIsASet, NSKeyVal
                     NSKeyValueForwardingValues forwardingValues = {0};
                     if ([property object:self withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:YES forwardingValues:&forwardingValues])
                     {
-                        BOOL reatinedDetails = NO;
-                        apply(&changeResult, self, relevantKeyPath, exactMatch, observance.options, reserved2, forwardingValues, &reatinedDetails);
-                        pushFn(self, keyOrKeys, observance, forwardingValues, kvoTSD, changeResult);
-                        if (observance.options & NSKeyValueObservingOptionPrior)
+                        @try
                         {
-                            _NSKeyValueNotifyObserver(observance.observer, self, observance.originalObservable, relevantKeyPath, changeResult, observance.context, YES);
+                            BOOL reatinedDetails = NO;
+                            apply(&changeResult, self, relevantKeyPath, exactMatch, observance.options, reserved2, forwardingValues, &reatinedDetails);
+                            pushFn(self, keyOrKeys, observance, forwardingValues, kvoTSD, changeResult);
+                            if (observance.options & NSKeyValueObservingOptionPrior)
+                            {
+                                _NSKeyValueNotifyObserver(observance.observer, self, observance.originalObservable, relevantKeyPath, changeResult, observance.context, YES);
+                            }
+                            if (reatinedDetails)
+                            {
+                                [changeResult.oldValue release];
+                                [changeResult.newValue release];
+                                [changeResult.indexes release];
+                                [changeResult.extraData release];
+                            }
                         }
-                        if (reatinedDetails)
+                        @finally
                         {
-                            [changeResult.oldValue release];
-                            [changeResult.newValue release];
-                            [changeResult.indexes release];
-                            [changeResult.extraData release];
+                            // apply may invoke a getter that drains an autorelease pool.
+                            // Keep the will-change result alive until push has retained it.
+                            [forwardingValues._field1 release];
+                            [forwardingValues.recursedMutableDictionary release];
                         }
                     }
                 }

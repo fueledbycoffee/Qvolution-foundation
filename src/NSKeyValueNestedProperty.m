@@ -120,13 +120,15 @@
     forwardingValues->recursedMutableDictionary = nil;
     if (self.isAllowedToResultInForwarding)
     {
-        forwardingValues->_field1 = [object valueForKey:self.relationshipKey] ?: [NSNull null];
+        id oldTarget = [object valueForKey:self.relationshipKey] ?: [NSNull null];
+        forwardingValues->_field1 = [oldTarget retain];
     }
     NSKeyValueForwardingValues tempValues = {0};
     if ([self.relationshipProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:shouldRecurse forwardingValues:&tempValues])
     {
         forwardingValues->recursedMutableDictionary = tempValues.recursedMutableDictionary;
     }
+    [tempValues._field1 release];
     return YES;
 }
 

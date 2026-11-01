@@ -1,0 +1,2 @@
+add_darling_executable(foundation_kvo_dependent_forwarding main.m)
+target_link_libraries(foundation_kvo_dependent_forwarding Foundation)

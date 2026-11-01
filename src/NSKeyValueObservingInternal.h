@@ -16,6 +16,8 @@ enum {
     NSKeyValueObservingOptionNestedChain = 0x100
 };
 
+// Successful will-change methods return ownership of both fields to the caller.
+// Pending notifications retain their own references; did-change only borrows them.
 typedef struct {
     id _field1;
     NSMutableDictionary *recursedMutableDictionary;
