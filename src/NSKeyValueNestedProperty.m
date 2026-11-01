@@ -124,9 +124,19 @@
         forwardingValues->_field1 = [oldTarget retain];
     }
     NSKeyValueForwardingValues tempValues = {0};
-    if ([self.relationshipProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:shouldRecurse forwardingValues:&tempValues])
+    @try
     {
-        forwardingValues->recursedMutableDictionary = tempValues.recursedMutableDictionary;
+        if ([self.relationshipProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:shouldRecurse forwardingValues:&tempValues])
+        {
+            forwardingValues->recursedMutableDictionary = tempValues.recursedMutableDictionary;
+        }
+    }
+    @catch (id exception)
+    {
+        // The caller never receives these values, so nothing else will release the old target.
+        [forwardingValues->_field1 release];
+        forwardingValues->_field1 = nil;
+        @throw;
     }
     [tempValues._field1 release];
     return YES;

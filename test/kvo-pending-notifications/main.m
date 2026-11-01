@@ -17,6 +17,7 @@
 
 static NSUInteger observerDeaths;
 static NSUInteger objectDeaths;
+static NSUInteger childDeaths;
 
 typedef NS_ENUM(NSInteger, Action) {
     ActionNone,
@@ -84,6 +85,91 @@ typedef NS_ENUM(NSInteger, Action) {
 }
 @end
 
+
+@interface OwnedChild : NSObject
+{
+    NSString *_c;
+    NSString *_e;
+}
+@property (nonatomic, copy) NSString *c;
+@property (nonatomic, copy) NSString *e;
+@end
+
+@implementation OwnedChild
+@synthesize c = _c;
+@synthesize e = _e;
+- (void)dealloc
+{
+    childDeaths++;
+    [_c release];
+    [_e release];
+    [super dealloc];
+}
+@end
+
+// owner depends on source.e, and "owner.c" is observed, so a will for "source" makes the
+// nested property for owner.c take the owner as its old target and then ask the owner's
+// own relationship to gather what it depends on.
+@interface OwnerObject : NSObject
+{
+    OwnedChild *_owner;
+    OwnedChild *_source;
+    BOOL _throwOnSource;
+}
+@property (nonatomic, assign) BOOL throwOnSource;
+- (OwnedChild *)owner;
+- (void)setOwner:(OwnedChild *)owner;
+- (OwnedChild *)source;
+- (void)setSource:(OwnedChild *)source;
+@end
+
+@implementation OwnerObject
+@synthesize throwOnSource = _throwOnSource;
++ (BOOL)automaticallyNotifiesObserversForKey:(NSString *)key
+{
+    if ([key isEqualToString:@"owner"] || [key isEqualToString:@"source"])
+    {
+        return NO;
+    }
+    return [super automaticallyNotifiesObserversForKey:key];
+}
++ (NSSet *)keyPathsForValuesAffectingOwner
+{
+    return [NSSet setWithObject:@"source.e"];
+}
+- (OwnedChild *)owner { return _owner; }
+- (OwnedChild *)source { return _source; }
+- (void)setOwner:(OwnedChild *)owner
+{
+    [self willChangeValueForKey:@"owner"];
+    [owner retain];
+    [_owner release];
+    _owner = owner;
+    [self didChangeValueForKey:@"owner"];
+}
+- (void)setSource:(OwnedChild *)source
+{
+    [self willChangeValueForKey:@"source"];
+    [source retain];
+    [_source release];
+    _source = source;
+    [self didChangeValueForKey:@"source"];
+}
+- (id)valueForKey:(NSString *)key
+{
+    if (_throwOnSource && [key isEqualToString:@"source"])
+    {
+        [NSException raise:NSUndefinedKeyException format:@"simulated unknown key"];
+    }
+    return [super valueForKey:key];
+}
+- (void)dealloc
+{
+    [_owner release];
+    [_source release];
+    [super dealloc];
+}
+@end
 
 static char observerContext;
 
@@ -398,6 +484,42 @@ static void runDependentKeys(void)
     [object release];
 }
 
+// F4: the will for "source" throws while the nested owner.c property is gathering forwarding
+// values. The old owner it had already retained must be released again.
+static void runNestedWillThrows(void)
+{
+    NSUInteger deathsBefore = childDeaths;
+    OwnerObject *object = [OwnerObject new];
+    OwnedChild *owner = [OwnedChild new];
+    OwnedChild *source = [OwnedChild new];
+    owner.c = @"c";
+    source.e = @"e";
+    [object setOwner:owner];
+    [object setSource:source];
+    PendingObserver *observer = [PendingObserver new];
+    [object addObserver:observer forKeyPath:@"owner.c" options:0 context:&observerContext];
+    object.throwOnSource = YES;
+    BOOL threw = NO;
+    @try
+    {
+        [object willChangeValueForKey:@"source"];
+    }
+    @catch (NSException *exception)
+    {
+        threw = [[exception name] isEqualToString:NSUndefinedKeyException];
+    }
+    object.throwOnSource = NO;
+    expect(threw, @"nested will did not throw the simulated exception");
+    [object removeObserver:observer forKeyPath:@"owner.c"];
+    [observer release];
+    [object setOwner:nil];
+    [object setSource:nil];
+    [owner release];
+    [source release];
+    expect(childDeaths == deathsBefore + 2, @"a throwing nested will leaked its old owner");
+    [object release];
+}
+
 typedef struct { const char *name; void (*run)(void); } Scenario;
 
 int main(int argc, const char **argv)
@@ -411,6 +533,7 @@ int main(int argc, const char **argv)
         { "mismatched-keys", runMismatchedKeys },
         { "removed-observer", runRemovedObserver },
         { "abandoned-delivery", runAbandonedDelivery },
+        { "nested-will-throws", runNestedWillThrows },
         { "dependent-keys", runDependentKeys },
     };
     // removed-observer reads freed memory when it fails. Scribbling freed blocks turns that

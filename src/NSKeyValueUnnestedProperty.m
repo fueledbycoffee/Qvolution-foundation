@@ -147,47 +147,56 @@
     NSMutableDictionary *dict = nil;
     if (shouldRecurse)
     {
-        BOOL isKeys = [keyOrKeys isNSSet__];
-        for (NSKeyValueProperty *affectingProperty in self.affectingProperties)
+        @try
         {
-            NSString *relevantKeyPath = nil;
-            if (isKeys)
+            BOOL isKeys = [keyOrKeys isNSSet__];
+            for (NSKeyValueProperty *affectingProperty in self.affectingProperties)
             {
-                relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForMemberOfKeys:keyOrKeys];
-            }
-            else
-            {
-                relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForKey:keyOrKeys exactMatch:NULL];
-            }
-            if (relevantKeyPath != nil)
-            {
-                NSKeyValueForwardingValues childValues = {0};
-                if ([affectingProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:&childValues])
+                NSString *relevantKeyPath = nil;
+                if (isKeys)
                 {
-                    if (childValues._field1 != nil)
+                    relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForMemberOfKeys:keyOrKeys];
+                }
+                else
+                {
+                    relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForKey:keyOrKeys exactMatch:NULL];
+                }
+                if (relevantKeyPath != nil)
+                {
+                    NSKeyValueForwardingValues childValues = {0};
+                    if ([affectingProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:&childValues])
                     {
-                        // Keep the property that consumes this old target, including NSNull for nil.
-                        if (dict == nil)
+                        if (childValues._field1 != nil)
                         {
-                            dict = [[NSMutableDictionary alloc] initWithCapacity:1];
+                            // Keep the property that consumes this old target, including NSNull for nil.
+                            if (dict == nil)
+                            {
+                                dict = [[NSMutableDictionary alloc] initWithCapacity:1];
+                            }
+                            [dict setObject:childValues._field1 forKey:affectingProperty];
                         }
-                        [dict setObject:childValues._field1 forKey:affectingProperty];
-                    }
-                    [childValues._field1 release];
-                    if (childValues.recursedMutableDictionary != nil)
-                    {
-                        if (dict == nil)
+                        [childValues._field1 release];
+                        if (childValues.recursedMutableDictionary != nil)
                         {
-                            dict = childValues.recursedMutableDictionary; // Transfer ownership.
-                        }
-                        else
-                        {
-                            [dict addEntriesFromDictionary:childValues.recursedMutableDictionary];
-                            [childValues.recursedMutableDictionary release];
+                            if (dict == nil)
+                            {
+                                dict = childValues.recursedMutableDictionary; // Transfer ownership.
+                            }
+                            else
+                            {
+                                [dict addEntriesFromDictionary:childValues.recursedMutableDictionary];
+                                [childValues.recursedMutableDictionary release];
+                            }
                         }
                     }
                 }
             }
+        }
+        @catch (id exception)
+        {
+            // The caller never receives the dictionary, so nothing else will release it.
+            [dict release];
+            @throw;
         }
     }
     forwardingValues->_field1 = nil;
