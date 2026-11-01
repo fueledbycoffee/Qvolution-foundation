@@ -12,6 +12,10 @@
 #import <Foundation/NSLocale.h>
 #import <Foundation/NSValue.h>
 #import <Foundation/NSPortCoder.h>
+#import <Foundation/NSCoder.h>
+#import <Foundation/NSKeyedArchiver.h>
+#import <Foundation/NSArray.h>
+#import <Foundation/NSData.h>
 #import <dispatch/dispatch.h>
 
 // The keys are stored in archives and AttributedString encodings, so they must match macOS.
@@ -24,6 +28,11 @@ NSAttributedStringKey const NSLanguageIdentifierAttributeName = @"NSLanguage";
 @end
 
 @implementation NSMutableAttributedString
+
+- (Class)classForCoder
+{
+    return [NSMutableAttributedString class];
+}
 
 @end
 CF_PRIVATE
@@ -383,7 +392,112 @@ static inline BOOL _NSAttrValuesEqual(id val1, id val2) {
     return [self isEqualToAttributedString:other];
 }
 
-#warning implement NSAttributeString coding
+static BOOL _NSAttributedStringReadInteger(const uint8_t **cursor, const uint8_t *end, NSUInteger *value)
+{
+    NSUInteger result = 0;
+    for (NSUInteger shift = 0; shift < sizeof(NSUInteger) * 8; shift += 7) {
+        if (*cursor == end) return NO;
+        uint8_t byte = *(*cursor)++;
+        if ((NSUInteger)(byte & 0x7f) > (NSUIntegerMax >> shift)) return NO;
+        result |= (NSUInteger)(byte & 0x7f) << shift;
+        if (!(byte & 0x80)) { *value = result; return YES; }
+    }
+    return NO;
+}
+
+static void _NSAttributedStringWriteInteger(NSMutableData *data, NSUInteger value)
+{
+    do {
+        uint8_t byte = value & 0x7f;
+        value >>= 7;
+        if (value) byte |= 0x80;
+        [data appendBytes:&byte length:1];
+    } while (value);
+}
+
+- (id)initWithCoder:(NSCoder *)coder
+{
+    NSMutableAttributedString *decoded = nil;
+    BOOL handedToInitializer = NO;
+    @try {
+        BOOL keyed = [coder allowsKeyedCoding];
+        id string = keyed ? [coder decodeObjectForKey:@"NSString"] : [coder decodeObject];
+        id attributes = keyed ? [coder decodeObjectForKey:@"NSAttributes"] : [coder decodeObject];
+        id info = keyed ? [coder decodeObjectForKey:@"NSAttributeInfo"] : [coder decodeObject];
+        if (![string isKindOfClass:[NSString class]]) {
+            [NSException raise:NSInvalidUnarchiveOperationException format:@"attributed string requires a string"];
+        }
+        decoded = [[NSMutableAttributedString alloc] initWithString:string];
+        NSUInteger length = [string length];
+        if (!attributes && !info) {
+            // Missing optional attributes represent an unadorned string.
+        } else if ([attributes isKindOfClass:[NSDictionary class]] && !info) {
+            if (length) [decoded setAttributes:attributes range:NSMakeRange(0, length)];
+        } else if ([attributes isKindOfClass:[NSArray class]] && [info isKindOfClass:[NSData class]]) {
+            const uint8_t *cursor = [info bytes];
+            const uint8_t *end = cursor;
+            if ([info length]) end += [info length];
+            NSUInteger location = 0;
+            while (location < length) {
+                NSUInteger runLength, index;
+                if (!_NSAttributedStringReadInteger(&cursor, end, &runLength) ||
+                    !_NSAttributedStringReadInteger(&cursor, end, &index) ||
+                    runLength == 0 || runLength > length - location || index >= [attributes count]) {
+                    [NSException raise:NSInvalidUnarchiveOperationException format:@"invalid attributed string run"];
+                }
+                id dictionary = [attributes objectAtIndex:index];
+                if (![dictionary isKindOfClass:[NSDictionary class]]) {
+                    [NSException raise:NSInvalidUnarchiveOperationException format:@"invalid attributed string attributes"];
+                }
+                [decoded setAttributes:dictionary range:NSMakeRange(location, runLength)];
+                location += runLength;
+            }
+            if (cursor != end) {
+                [NSException raise:NSInvalidUnarchiveOperationException format:@"trailing attributed string run data"];
+            }
+        } else {
+            [NSException raise:NSInvalidUnarchiveOperationException format:@"invalid attributed string coding fields"];
+        }
+        // The initializer takes responsibility for self, including failure.
+        handedToInitializer = YES;
+        return [self initWithAttributedString:decoded];
+    } @catch (id exception) {
+        if (!handedToInitializer) [self release];
+        @throw;
+    } @finally {
+        [decoded release];
+    }
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    NSUInteger length = [self length];
+    NSMutableArray *attributes = [NSMutableArray array];
+    NSMutableData *info = [NSMutableData data];
+    for (NSUInteger location = 0; location < length;) {
+        NSRange range;
+        NSDictionary *dictionary = [self attributesAtIndex:location effectiveRange:&range];
+        if (range.location > location || range.length > length - range.location || NSMaxRange(range) <= location) {
+            [NSException raise:NSInvalidArgumentException format:@"invalid attributed string effective range"];
+        }
+        NSUInteger runLength = NSMaxRange(range) - location;
+        _NSAttributedStringWriteInteger(info, runLength);
+        _NSAttributedStringWriteInteger(info, [attributes count]);
+        [attributes addObject:dictionary];
+        location += runLength;
+    }
+    id encodedAttributes = [attributes count] == 1 ? [attributes objectAtIndex:0] : (id)attributes;
+    id encodedInfo = [attributes count] > 1 ? info : nil;
+    if ([coder allowsKeyedCoding]) {
+        [coder encodeObject:[self string] forKey:@"NSString"];
+        if (length) [coder encodeObject:encodedAttributes forKey:@"NSAttributes"];
+        if (encodedInfo) [coder encodeObject:encodedInfo forKey:@"NSAttributeInfo"];
+    } else {
+        [coder encodeObject:[self string]];
+        [coder encodeObject:length ? encodedAttributes : nil];
+        [coder encodeObject:encodedInfo];
+    }
+}
 
 - (NSString *)description
 {

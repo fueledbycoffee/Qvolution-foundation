@@ -26,6 +26,8 @@
 - (void)setAttributes:(NSDictionary *)attributes range:(NSRange)range;
 - (void)replaceCharactersInRange:(NSRange)range withString:(NSString *)string;
 - (Class)classForCoder;
+- (id)initWithCoder:(NSCoder *)coder;
+- (void)encodeWithCoder:(NSCoder *)coder;
 - (id)mutableCopyWithZone:(NSZone *)zone;
 - (id)copyWithZone:(NSZone *)zone;
 - (BOOL)isEqualToAttributedString:(NSAttributedString *)other;
@@ -46,3 +48,5 @@
 @end
 
 void _CFAttributedStringSetMutable(CFAttributedStringRef aStr, Boolean isMutable);
+
+Boolean _CFAttributedStringIsMutable(CFAttributedStringRef aStr);
