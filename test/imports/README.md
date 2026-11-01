@@ -36,3 +36,11 @@ Run the native regression with an authored fake launcher (no container):
         --guard /path/to/dashboard/qv-host-guard --scratch /tmp/if-runner-tests
 
 The scratch path must be short enough for the runner's 83-byte prefix limit.
+
+strong-exports.txt is the complete set of 755 non-weak Foundation imports from
+this lane's imports-sweep-a/b demand audit. Unlike exports.txt, it includes the
+unimplemented imports. check-strong-exports.py exits nonzero for every gap and
+requires an unrelated source-built negative control in the same invocation.
+review-error-resource-exports.txt isolates the ten error/resource imports ported
+in the fix round. All names are rung 5 demand facts; availability is not inferred
+from mangled spellings and no Swift ABI is manufactured to satisfy them.
