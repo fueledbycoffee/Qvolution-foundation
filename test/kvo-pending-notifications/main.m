@@ -11,7 +11,9 @@
 // Each scenario can be run alone by name; with no argument all of them run.
 #import <Foundation/Foundation.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef NS_ENUM(NSInteger, Action) {
     ActionNone,
@@ -261,6 +263,32 @@ static void runWillThrows(void)
     [object release];
 }
 
+// F1: an observer is removed between will and did. Its entry is dropped by the pop's
+// failure branch, which used to read the entry's retain count after freeing it. Under
+// MallocScribble the freed count reads as non-zero, the pop gave up, and the observers
+// that were still registered were not notified.
+static void runRemovedObserver(void)
+{
+    for (int removeFirst = 0; removeFirst < 2; removeFirst++)
+    {
+        PendingObject *object = [PendingObject new];
+        PendingObserver *first = attach(object, @"a", NSKeyValueObservingOptionOld);
+        PendingObserver *second = attach(object, @"a", NSKeyValueObservingOptionOld);
+        PendingObserver *removed = removeFirst ? first : second;
+        PendingObserver *kept = removeFirst ? second : first;
+        [object willChangeValueForKey:@"a"];
+        [object removeObserver:removed forKeyPath:@"a"];
+        [object didChangeValueForKey:@"a"];
+        expect(removed.notifications == 0, @"removed observer was notified");
+        expect(kept.notifications == 1, @"remaining observer was not notified exactly once");
+        expectCleanChange(object, kept);
+        [object removeObserver:kept forKeyPath:@"a"];
+        [removed release];
+        [kept release];
+        [object release];
+    }
+}
+
 // will for one key, did for a different one (no matching will), then the real did.
 static void runMismatchedKeys(void)
 {
@@ -309,8 +337,16 @@ int main(int argc, const char **argv)
         { "callback-throws", runCallbackThrows },
         { "will-throws", runWillThrows },
         { "mismatched-keys", runMismatchedKeys },
+        { "removed-observer", runRemovedObserver },
         { "dependent-keys", runDependentKeys },
     };
+    // removed-observer reads freed memory when it fails. Scribbling freed blocks turns that
+    // into a deterministic wrong answer instead of an allocator-dependent one.
+    if (getenv("MallocScribble") == NULL && argv[0][0] == '/')
+    {
+        setenv("MallocScribble", "1", 1);
+        execv(argv[0], (char *const *)argv);
+    }
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     int result = 0;
     int matched = 0;

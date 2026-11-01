@@ -1725,8 +1725,13 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
             }
             else
             {
+                // The array normally holds the only reference, so removing the entry frees it:
+                // look at the count first, never at the entry afterwards.
+                // GUESS (rung 6): once a dead entry is gone keep scanning; stop only when
+                // somebody else (an outer did's delivery hold) still owns the entry.
+                BOOL lastReference = (pendingNotification->retainCount == 1);
                 CFArrayRemoveValueAtIndex(result->pendingNotifications, cursor);
-                if (pendingNotification->retainCount == 0)
+                if (lastReference)
                 {
                     continue;
                 }
