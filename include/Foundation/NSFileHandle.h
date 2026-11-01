@@ -19,6 +19,8 @@ FOUNDATION_EXPORT NSString * const NSFileHandleNotificationMonitorModes;
 - (NSData *)readDataToEndOfFile;
 - (NSData *)readDataOfLength:(NSUInteger)length;
 - (void)writeData:(NSData *)data;
+- (NSData * _Nullable)readDataUpToLength:(NSUInteger)length error:(NSError * _Nullable * _Nullable)error NS_SWIFT_NAME(_readDataUpToLength(_:error:)) __attribute__((swift_error(none)));
+- (BOOL)writeData:(NSData * _Nonnull)data error:(NSError * _Nullable * _Nullable)error NS_SWIFT_NAME(_writeData(_:error:)) __attribute__((swift_error(none)));
 - (unsigned long long)offsetInFile;
 - (unsigned long long)seekToEndOfFile;
 - (void)seekToFileOffset:(unsigned long long)offset;

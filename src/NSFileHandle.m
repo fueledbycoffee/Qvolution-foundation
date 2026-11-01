@@ -1503,3 +1503,57 @@ CF_PRIVATE
 }
 
 @end
+
+@implementation NSFileHandle (CheckedIO)
+
+- (NSData *)readDataUpToLength:(NSUInteger)length error:(NSError **)error
+{
+    if ([self isKindOfClass:[NSNullFileHandle class]]) return [NSData data];
+    int fd;
+    @try { fd = [self fileDescriptor]; }
+    @catch (NSException *exception) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EBADF userInfo:nil];
+        return nil;
+    }
+    size_t count = MIN(length, (NSUInteger)INT_MAX);
+    void *bytes = malloc(count ? count : 1);
+    if (!bytes) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:ENOMEM userInfo:nil];
+        return nil;
+    }
+    ssize_t result;
+    do { result = read(fd, bytes, count); } while (result < 0 && errno == EINTR);
+    if (result < 0) {
+        int saved = errno;
+        free(bytes);
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:saved userInfo:nil];
+        return nil;
+    }
+    return [NSData dataWithBytesNoCopy:bytes length:result freeWhenDone:YES];
+}
+
+- (BOOL)writeData:(NSData *)data error:(NSError **)error
+{
+    if ([self isKindOfClass:[NSNullFileHandle class]]) return YES;
+    int fd;
+    @try { fd = [self fileDescriptor]; }
+    @catch (NSException *exception) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EBADF userInfo:nil];
+        return NO;
+    }
+    const char *bytes = [data bytes];
+    NSUInteger remaining = [data length];
+    while (remaining) {
+        ssize_t result;
+        do { result = write(fd, bytes, MIN(remaining, (NSUInteger)INT_MAX)); } while (result < 0 && errno == EINTR);
+        if (result <= 0) {
+            int saved = result < 0 ? errno : EIO;
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:saved userInfo:nil];
+            return NO;
+        }
+        bytes += result;
+        remaining -= result;
+    }
+    return YES;
+}
+@end
