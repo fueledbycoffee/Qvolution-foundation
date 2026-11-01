@@ -1,0 +1,2 @@
+add_darling_executable(foundation_nsthread_stack_size main.m)
+target_link_libraries(foundation_nsthread_stack_size Foundation)
