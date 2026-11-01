@@ -64,3 +64,11 @@ Initialize and shut down before staging under Applications/imp-foundation;
 prefix/tmp can be a dangling symlink from the host. Prepared behavior_fixtures
 are hash-checked, staged and executed on the candidate after the import probe.
 Their failures fail the run and still trigger shutdown and host verification.
+
+The guarded runner records `loader_diagnostics` independently of the fixture's
+exit status. A missing `/usr/lib/swift/libswift_DarwinFoundation1.dylib` is an
+integration dependency on **swift-in-stage**, delivered in **Stage41d**; rerun
+against that integrated runtime. The pinned Stage41b baseline predates it.
+Missing dlsym exports are counted separately per image and remain gate failures.
+The comparison returns `needs_review` if any required image is missing, even
+when the candidate subset succeeds. No import manifest is reduced for this.

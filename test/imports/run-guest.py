@@ -4,6 +4,7 @@ import argparse,hashlib,json,os,secrets,stat,subprocess,sys
 from pathlib import Path
 L=Path(os.environ.get('QV_FOUNDATION_LANE', Path(__file__).resolve().parent)).resolve()
 W=L.parent.parent
+os.environ['PATH']=str(W/'dashboard/bin')+os.pathsep+os.environ.get('PATH','')
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--baseline', action='store_true', help='select unmodified source-built Stage41b')
 parser.add_argument('--full-strong', action='store_true', help='use the entire Foundation strong-import manifest')
@@ -111,7 +112,12 @@ finally:
             except Exception as exc:
                 error=str(exc)
                 status=1
-    (log/'result.json').write_text(json.dumps({'outcome':'partial' if status==0 else 'failed', 'dlopen_test_passed':status==0,
+    from runpy import run_path
+    classify_loader_output=run_path(str(Path(__file__).with_name('loader_diagnostics.py')))['classify_loader_output']
+    loader_log=log/'dlopen-all-exports.log'
+    diagnostics=classify_loader_output(loader_log.read_text() if loader_log.exists() else '')
+    import_passed=any(item['step']=='dlopen-all-exports' and item['returncode']==0 for item in results)
+    (log/'result.json').write_text(json.dumps({'outcome':'needs_review' if diagnostics['missing_images'] else ('partial' if status==0 else 'failed'), 'dlopen_test_passed':import_passed and status==0, 'loader_diagnostics':diagnostics,
        'scope':'all strong imports' if options.full_strong else 'provided export subset',
        'baseline':options.baseline,'runtime_root':str(root),'fixture_sha256':hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
        'manifest_sha256':{name:hashlib.sha256(source.read_bytes()).hexdigest() for name,source in import_payloads.items()} if started and 'import_payloads' in globals() else {},

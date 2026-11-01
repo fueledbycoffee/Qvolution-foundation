@@ -29,6 +29,7 @@ class HostGuardTests(unittest.TestCase):
         lane.mkdir(parents=True)
         runner = lane / 'run-guest.py'
         shutil.copy2(options.runner, runner)
+        shutil.copy2(options.runner.with_name('loader_diagnostics.py'), runner.with_name('loader_diagnostics.py'))
         guard = work / 'dashboard/qv-host-guard'
         guard.parent.mkdir()
         shutil.copy2(options.guard, guard)
@@ -94,6 +95,12 @@ else:
         sys.exit(9 if mode == 'behavior-fail' else 0)
     assert sys.argv[2] == '/Applications/imp-foundation/load-exports'
     assert (prefix / 'Applications/imp-foundation/load-exports').is_file()
+    if mode == 'loader-dependency':
+        print('dlopen /usr/lib/swift/libswift_DarwinFoundation1.dylib: image not found')
+        sys.exit(1)
+    if mode == 'loader-exports':
+        print('missing _fixture_symbol in /Foundation: symbol not found')
+        sys.exit(1)
     if mode == 'full-strong':
         assert (prefix / 'Applications/imp-foundation/Foundation.txt').read_text() == 'full strong fixture\n'
     if mode in ('write', 'failed-write'):
@@ -116,6 +123,21 @@ else:
                 code = 0
         result = json.loads(next((lane / 'guest-runs').glob('*/result.json')).read_text())
         return code, result, home
+
+    def test_missing_image_reports_dependency_and_keeps_failure(self):
+        code, result, _ = self.exercise('loader-dependency')
+        self.assertEqual(code, 1)
+        self.assertFalse(result['dlopen_test_passed'])
+        self.assertEqual(result['loader_diagnostics']['state'], 'dependency_missing')
+        self.assertEqual(result['loader_diagnostics']['missing_images'][0]['provider_lane'], 'swift-in-stage')
+        self.assertEqual(result['host_guard']['verify'], 0)
+
+    def test_missing_exports_are_not_reported_as_missing_images(self):
+        code, result, _ = self.exercise('loader-exports')
+        self.assertEqual(code, 1)
+        self.assertEqual(result['loader_diagnostics']['state'], 'exports_missing')
+        self.assertEqual(result['loader_diagnostics']['missing_export_count'], 1)
+        self.assertEqual(result['loader_diagnostics']['missing_images'], [])
 
     def test_behavior_fixture_runs_after_imports(self):
         code, result, _ = self.exercise('behavior')
