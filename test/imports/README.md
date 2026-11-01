@@ -33,7 +33,7 @@ Host changes make the run fail (exit 3); guest-written files are preserved.
 Run the native regression with an authored fake launcher (no container):
 
     python3 test/imports/test-run-guest.py --runner test/imports/run-guest.py \
-        --guard /path/to/dashboard/qv-host-guard --scratch /tmp/if-runner-tests
+        --guard /path/to/dashboard/qv-host-guard --shutdown /path/to/dashboard/qv-shutdown --scratch /tmp/if-runner-tests
 
 The scratch path must be short enough for the runner's 83-byte prefix limit.
 
@@ -58,3 +58,9 @@ runs that same executable on the candidate with strong-exports.txt. Missing
 strong imports return nonzero and keep the overall result partial even when the
 baseline/candidate subset comparison passes. A bootstrap failure cannot count
 as a baseline regression. No stage is copied and no file is deleted by the runner.
+
+All shutdown paths use dashboard/qv-shutdown, including startup recovery.
+Initialize and shut down before staging under Applications/imp-foundation;
+prefix/tmp can be a dangling symlink from the host. Prepared behavior_fixtures
+are hash-checked, staged and executed on the candidate after the import probe.
+Their failures fail the run and still trigger shutdown and host verification.

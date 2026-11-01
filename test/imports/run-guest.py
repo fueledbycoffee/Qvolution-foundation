@@ -22,6 +22,10 @@ fixture=record.get('fixture', {'path':str(L/'native-build/load-exports')})
 fixture_path=Path(fixture['path'])
 if 'sha256' in fixture:
     assert hashlib.sha256(fixture_path.read_bytes()).hexdigest()==fixture['sha256'], 'fixture changed'
+behaviors=record.get('behavior_fixtures', {})
+for name,item in behaviors.items():
+    assert name and Path(name).name==name and name not in ('load-exports','Foundation.txt','Darwin.txt','swiftFoundation.txt')
+    assert hashlib.sha256(Path(item['path']).read_bytes()).hexdigest()==item['sha256'], 'behavior fixture changed'
 if options.baseline:
     root=W/'stage41b/usr/local/libexec/darling'
     assert root.is_dir(), 'source-built baseline install missing'
@@ -78,12 +82,19 @@ try:
        'Foundation.txt':L/'superproject/src/external/foundation/test/imports'/('strong-exports.txt' if options.full_strong else 'exports.txt'),
        'Darwin.txt':L/'swift/tests/darwin-foundation-imports/exports.txt',
        'swiftFoundation.txt':L/'swift/tests/foundation-imports/exports.txt'}
+    import_payloads=dict(payloads)
+    if not options.baseline:
+        payloads.update({name:Path(item['path']) for name,item in behaviors.items()})
     for name,source in payloads.items():shutil.copy2(source,owned/name)
     args=['shell','/Applications/imp-foundation/load-exports',
        '/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation','/Applications/imp-foundation/Foundation.txt',
        '/usr/lib/swift/libswift_DarwinFoundation1.dylib','/Applications/imp-foundation/Darwin.txt',
        '/usr/lib/swift/libswiftFoundation.dylib','/Applications/imp-foundation/swiftFoundation.txt']
     status=run('dlopen-all-exports',args)
+    if not options.baseline:
+        for name in behaviors:
+            code=run(f'behavior-{name}',['shell',f'/Applications/imp-foundation/{name}'])
+            if code:status=code
 except Exception as exc:
     error=str(exc)
 finally:
@@ -103,7 +114,8 @@ finally:
     (log/'result.json').write_text(json.dumps({'outcome':'partial' if status==0 else 'failed', 'dlopen_test_passed':status==0,
        'scope':'all strong imports' if options.full_strong else 'provided export subset',
        'baseline':options.baseline,'runtime_root':str(root),'fixture_sha256':hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
-       'manifest_sha256':{name:hashlib.sha256(source.read_bytes()).hexdigest() for name,source in payloads.items()} if started and 'payloads' in globals() else {},
+       'manifest_sha256':{name:hashlib.sha256(source.read_bytes()).hexdigest() for name,source in import_payloads.items()} if started and 'import_payloads' in globals() else {},
+       'behavior_sha256':{name:item['sha256'] for name,item in behaviors.items()} if not options.baseline else {},
        'prefix':str(prefix),'steps':results,'prepared':record,'host_guard':host_guard,'error':error},indent=2)+'\n')
     print(log)
 sys.exit(status)
