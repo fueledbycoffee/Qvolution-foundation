@@ -24,3 +24,15 @@ Rung 1 sources: Darling's overlays/Foundation and Swift public overlay sources,
 plus swift-foundation dbacc67779dc0a41ddc9493acbaa332d76c9fb03 (Apache-2.0).
 CocoaError.swift underlyingErrors uses the NSMultipleUnderlyingErrorsKey string
 verbatim. No undocumented string value or hand-authored Swift ABI stub is used.
+
+The fleet's maintained container runner is run-guest.py. Set QV_FOUNDATION_LANE
+explicitly to the prepared lane directory and invoke it while holding one guest
+slot. It requires dashboard/qv-host-guard in the fleet work area, snapshots before
+any launcher call, and verifies after final shutdown, including fixture failures.
+Host changes make the run fail (exit 3); guest-written files are preserved.
+Run the native regression with an authored fake launcher (no container):
+
+    python3 test/imports/test-run-guest.py --runner test/imports/run-guest.py \
+        --guard /path/to/dashboard/qv-host-guard --scratch /tmp/if-runner-tests
+
+The scratch path must be short enough for the runner's 83-byte prefix limit.
