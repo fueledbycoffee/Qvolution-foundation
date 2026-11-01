@@ -49,6 +49,12 @@ class HostGuardTests(unittest.TestCase):
         (work / 'stage41b/usr/local/libexec/darling').mkdir(parents=True)
         record = {'root': str(root), 'commits': {'foundation': 'test', 'swift': 'test'},
                   'payload_sha256': {}}
+        if mode in ('behavior', 'behavior-fail'):
+            behavior = lane / 'native-build/behavior'
+            behavior.parent.mkdir()
+            behavior.write_text('authored behavior fixture')
+            import hashlib
+            record['behavior_fixtures'] = {'behavior': {'path': str(behavior), 'sha256': hashlib.sha256(behavior.read_bytes()).hexdigest()}}
         (lane / 'prepared-private.json').write_text(json.dumps(record))
         payloads = ['native-build/load-exports',
                     'superproject/src/external/foundation/test/imports/exports.txt',
@@ -83,6 +89,9 @@ elif sys.argv[1] == 'shutdown':
         (Path.home() / 'Pictures/guest-write').write_text('preserve me')
 else:
     assert (prefix / 'initialized').exists()
+    if sys.argv[2] == '/Applications/imp-foundation/behavior':
+        assert (prefix / 'Applications/imp-foundation/behavior').is_file()
+        sys.exit(9 if mode == 'behavior-fail' else 0)
     assert sys.argv[2] == '/Applications/imp-foundation/load-exports'
     assert (prefix / 'Applications/imp-foundation/load-exports').is_file()
     if mode == 'full-strong':
@@ -107,6 +116,17 @@ else:
                 code = 0
         result = json.loads(next((lane / 'guest-runs').glob('*/result.json')).read_text())
         return code, result, home
+
+    def test_behavior_fixture_runs_after_imports(self):
+        code, result, _ = self.exercise('behavior')
+        self.assertEqual(code, 0)
+        self.assertIn('behavior-behavior', [s['step'] for s in result['steps']])
+
+    def test_behavior_failure_fails_candidate_and_still_guards(self):
+        code, result, _ = self.exercise('behavior-fail')
+        self.assertNotEqual(code, 0)
+        self.assertFalse(result['dlopen_test_passed'])
+        self.assertEqual(result['host_guard']['verify'], 0)
 
     def test_clean_run(self):
         code, result, _ = self.exercise('clean')
