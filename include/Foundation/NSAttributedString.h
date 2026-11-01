@@ -105,3 +105,5 @@ typedef NS_OPTIONS(NSUInteger, NSInlinePresentationIntent) {
 FOUNDATION_EXPORT const NSAttributedStringKey NSInlinePresentationIntentAttributeName NS_SWIFT_NAME(inlinePresentationIntent);
 // Value: an NSString holding a BCP-47 language identifier.
 FOUNDATION_EXPORT const NSAttributedStringKey NSLanguageIdentifierAttributeName NS_SWIFT_NAME(languageIdentifier);
+
+FOUNDATION_EXPORT NSAttributedStringKey const NSPresentationIntentAttributeName;
