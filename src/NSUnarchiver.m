@@ -185,7 +185,9 @@ static const char* uniqueString(const char* str);
     return [self _readObject:outObject];
 }
 
-- (NSNumber*)nextSharedObjectLabel
+// Objects, C strings and classes take labels from one counter (see NSArchiver's _takeObjectLabel:);
+// classes are kept in their own table only because Class values are not retained.
+- (NSNumber*)nextSharedLabel
 {
     return @(_sharedObjectCounter++);
 }
@@ -212,7 +214,7 @@ static const char* uniqueString(const char* str);
             
         case NewLabel:
         {
-            NSNumber* label = [self nextSharedObjectLabel];
+            NSNumber* label = [self nextSharedLabel];
             NSUDEBUG(@"NSUnarchiver _readObject: new label %@, outObject at %p\n", label, outObject);
             Class objectClass;
             if(![self readClass:&objectClass])
@@ -339,7 +341,7 @@ static const char* uniqueString(const char* str);
             _versionByClassName[className] = @(version);
             
             *outClass = [self classForName:className];
-            NSNumber* nextLabel = @(_sharedClassCounter++);
+            NSNumber* nextLabel = [self nextSharedLabel];
             if (*outClass) {
                 _sharedClasses[nextLabel] = *outClass;
             }
@@ -516,7 +518,7 @@ static const char* uniqueString(const char* str);
                 return NO;
             NSAssert(*outString, nil);
 
-            NSNumber* nextLabel = [self nextSharedObjectLabel];
+            NSNumber* nextLabel = [self nextSharedLabel];
             NSUDEBUG(@"NSunarchiver decodeString: new label %@ for string %@\n", nextLabel, *outString);
             _sharedObjects[nextLabel] = *outString;
             return YES;

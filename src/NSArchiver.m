@@ -143,7 +143,6 @@ static NSMutableDictionary *encodedClassNames = nil;
         replacementTable = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &identityKeyCallBacks, &objectValueCallBacks);
         _objectLabels = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &identityKeyCallBacks, NULL);
         _classLabels = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &identityKeyCallBacks, NULL);
-        _nextClassLabel = 0;
         _unconditionalObjects = CFSetCreateMutable(kCFAllocatorDefault, 0, &identitySetCallBacks);
         _sharedStrings = [[NSMutableDictionary alloc] init];
 
@@ -208,6 +207,8 @@ static NSMutableDictionary *encodedClassNames = nil;
     [mdata appendData:key];
 }
 
+// Objects, C strings and classes are numbered from one counter, so a reference label is an index
+// into a single sequence whichever kind it names (shared class-name strings are numbered apart).
 - (NSUInteger)_takeObjectLabel:(id)object
 {
     NSUInteger label = _nextObjectLabel++;
@@ -243,7 +244,7 @@ static NSMutableDictionary *encodedClassNames = nil;
     [self _writeByte:NewLabel];
     [self _writeSharedString:name.UTF8String];
     [self _writeInt:(int)[cls version]];
-    NSUInteger classLabel = _nextClassLabel++;
+    NSUInteger classLabel = _nextObjectLabel++;
     CFDictionarySetValue(_classLabels, (const void *)cls, (const void *)(classLabel + 1));
     [self _writeClass:class_getSuperclass(cls)];
 }
@@ -441,7 +442,6 @@ static NSMutableDictionary *encodedClassNames = nil;
 
     NSUInteger length = mdata.length;
     NSUInteger nextLabel = _nextObjectLabel;
-    NSUInteger nextClassLabel = _nextClassLabel;
     NSMutableDictionary *sharedStrings = [_sharedStrings mutableCopy];
     CFMutableDictionaryRef objectLabels = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, _objectLabels);
     CFMutableDictionaryRef classLabels = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, _classLabels);
@@ -457,7 +457,6 @@ static NSMutableDictionary *encodedClassNames = nil;
         {
             mdata.length = length;
             _nextObjectLabel = nextLabel;
-            _nextClassLabel = nextClassLabel;
             [_sharedStrings release];
             _sharedStrings = sharedStrings;
             CFRelease(_objectLabels);

@@ -1,0 +1,2 @@
+add_darling_executable(foundation_nsarchiver_shared_labels main.m)
+target_link_libraries(foundation_nsarchiver_shared_labels Foundation)
