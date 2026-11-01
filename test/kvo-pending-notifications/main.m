@@ -15,11 +15,15 @@
 #include <string.h>
 #include <unistd.h>
 
+static NSUInteger observerDeaths;
+static NSUInteger objectDeaths;
+
 typedef NS_ENUM(NSInteger, Action) {
     ActionNone,
     ActionLeakWill,   // will for "a", then an exception caught here: no did
     ActionNestedSet,  // a complete, correctly paired change of "a"
     ActionThrow,      // raise NSUndefinedKeyException out of the observer callback
+    ActionNestedSetCatching, // a nested paired change whose observer callback may throw, caught here
 };
 
 @interface PendingObject : NSObject
@@ -65,6 +69,11 @@ typedef NS_ENUM(NSInteger, Action) {
     _b = value;
     [self didChangeValueForKey:@"b"];
 }
+- (void)dealloc
+{
+    objectDeaths++;
+    [super dealloc];
+}
 - (id)valueForKey:(NSString *)key
 {
     if (_throwOnValueForA && [key isEqualToString:@"a"])
@@ -75,29 +84,57 @@ typedef NS_ENUM(NSInteger, Action) {
 }
 @end
 
+
 static char observerContext;
 
 @interface PendingObserver : NSObject
 {
     NSUInteger _notifications;
-    Action _action;
+    NSMutableArray *_queue; // actions for the next callbacks, one consumed per callback
     PendingObject *_target;
     NSInteger _nestedValue;
 }
 @property (nonatomic, assign) NSUInteger notifications;
-@property (nonatomic, assign) Action action;
 @property (nonatomic, assign) PendingObject *target;
+- (void)setAction:(Action)action;
+- (void)enqueue:(Action)action;
 @end
 
 @implementation PendingObserver
 @synthesize notifications = _notifications;
-@synthesize action = _action;
 @synthesize target = _target;
+- (id)init
+{
+    if ((self = [super init]))
+    {
+        _queue = [NSMutableArray new];
+    }
+    return self;
+}
+- (void)setAction:(Action)action
+{
+    [_queue removeAllObjects];
+    [self enqueue:action];
+}
+- (void)enqueue:(Action)action
+{
+    [_queue addObject:[NSNumber numberWithInteger:action]];
+}
+- (void)dealloc
+{
+    observerDeaths++;
+    [_queue release];
+    [super dealloc];
+}
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
     _notifications++;
-    Action action = _action;
-    _action = ActionNone; // one shot, so nested changes do not recurse
+    Action action = ActionNone; // one shot per callback, so nested changes do not recurse
+    if ([_queue count] != 0)
+    {
+        action = (Action)[[_queue objectAtIndex:0] integerValue];
+        [_queue removeObjectAtIndex:0];
+    }
     if (action == ActionLeakWill)
     {
         // What application code does when something between will and did raises.
@@ -117,6 +154,20 @@ static char observerContext;
     else if (action == ActionNestedSet)
     {
         [_target setA:++_nestedValue + 1000];
+    }
+    else if (action == ActionNestedSetCatching)
+    {
+        @try
+        {
+            [_target setA:++_nestedValue + 2000];
+        }
+        @catch (NSException *exception)
+        {
+            if (![[exception name] isEqualToString:NSUndefinedKeyException])
+            {
+                @throw;
+            }
+        }
     }
     else if (action == ActionThrow)
     {
@@ -263,6 +314,7 @@ static void runWillThrows(void)
     [object release];
 }
 
+
 // F1: an observer is removed between will and did. Its entry is dropped by the pop's
 // failure branch, which used to read the entry's retain count after freeing it. Under
 // MallocScribble the freed count reads as non-zero, the pop gave up, and the observers
@@ -287,6 +339,26 @@ static void runRemovedObserver(void)
         [kept release];
         [object release];
     }
+}
+
+// F3: an observer callback throws from inside a nested change and the caller catches it.
+// The delivery of that entry is abandoned. A later change pops it as a stale entry, and
+// then nothing may still hold it: it retains its observable and its observer.
+static void runAbandonedDelivery(void)
+{
+    NSUInteger observersBefore = observerDeaths;
+    NSUInteger objectsBefore = objectDeaths;
+    PendingObject *object = [PendingObject new];
+    PendingObserver *observer = attach(object, @"a", 0);
+    [observer enqueue:ActionNestedSetCatching];
+    [observer enqueue:ActionThrow];
+    [object setA:1];
+    expect(observer.notifications == 2, @"abandoned delivery: expected the outer and the throwing callback");
+    [object setA:3]; // pops the abandoned entry, level permitting
+    detach(object, observer, @"a");
+    [object release];
+    expect(observerDeaths == observersBefore + 1, @"abandoned delivery kept its observer alive");
+    expect(objectDeaths == objectsBefore + 1, @"abandoned delivery kept its observable alive");
 }
 
 // will for one key, did for a different one (no matching will), then the real did.
@@ -338,6 +410,7 @@ int main(int argc, const char **argv)
         { "will-throws", runWillThrows },
         { "mismatched-keys", runMismatchedKeys },
         { "removed-observer", runRemovedObserver },
+        { "abandoned-delivery", runAbandonedDelivery },
         { "dependent-keys", runDependentKeys },
     };
     // removed-observer reads freed memory when it fails. Scribbling freed blocks turns that

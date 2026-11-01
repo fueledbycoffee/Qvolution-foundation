@@ -1590,18 +1590,32 @@ void _NSKeyValueDidChange(NSObject *observable, id keyOrKeys, BOOL keyOrKeysIsAS
     NSKeyValueChangeDetails fillDetails = {0};
     NSKeyValueForwardingValues forwardingValues = {0};
     id outKeyOrKeys = nil;
-    while (popFn(observable, keyOrKeys, &outObservance, &fillDetails, &forwardingValues, &outKeyOrKeys, result))
+    @try
     {
-        [outObservance.property object:observable withObservance:outObservance didChangeValueForKeyOrKeys:outKeyOrKeys recurse:YES forwardingValues:forwardingValues];
-        NSString *keyPath = [outObservance.property keyPath];
-        BOOL isDifferent = NO;
-        if (keyOrKeysIsASet == NO)
+        while (popFn(observable, keyOrKeys, &outObservance, &fillDetails, &forwardingValues, &outKeyOrKeys, result))
         {
-            isDifferent = !CFEqual(keyPath, outKeyOrKeys);
+            [outObservance.property object:observable withObservance:outObservance didChangeValueForKeyOrKeys:outKeyOrKeys recurse:YES forwardingValues:forwardingValues];
+            NSString *keyPath = [outObservance.property keyPath];
+            BOOL isDifferent = NO;
+            if (keyOrKeysIsASet == NO)
+            {
+                isDifferent = !CFEqual(keyPath, outKeyOrKeys);
+            }
+            NSKeyValueChangeDetails appliedDetails = {0}; // possibly the wrong struct here. 
+            apply(&appliedDetails, observable, keyPath, isDifferent, outObservance.options, fillDetails);
+            _NSKeyValueNotifyObserver(outObservance.observer, observable, outObservance.originalObservable, keyPath, appliedDetails, outObservance.context, NO);
         }
-        NSKeyValueChangeDetails appliedDetails = {0}; // possibly the wrong struct here. 
-        apply(&appliedDetails, observable, keyPath, isDifferent, outObservance.options, fillDetails);
-        _NSKeyValueNotifyObserver(outObservance.observer, observable, outObservance.originalObservable, keyPath, appliedDetails, outObservance.context, NO);
+    }
+    @finally
+    {
+        // An observer that throws abandons the delivery in progress. The pop only drops its
+        // hold on the delivered entry on its next call, which now never comes. Drop it here;
+        // the entry stays in the array, so a later did can still pop and free it.
+        if (result->relevantNotification != NULL)
+        {
+            _NSKVOPendingNotificationRelease(NULL, result->relevantNotification);
+            result->relevantNotification = NULL;
+        }
     }
 }
 
