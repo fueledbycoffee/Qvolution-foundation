@@ -1506,12 +1506,20 @@ CF_PRIVATE
 
 @implementation NSFileHandle (CheckedIO)
 
+- (int)_checkedFileDescriptor
+{
+    // Checked I/O must not use the legacy closed-handle exception path.
+    if ([self isKindOfClass:[NSConcreteFileHandle class]] &&
+        (((NSConcreteFileHandle *)self)->_flags & NSConcreteFileHandleClosed)) return -1;
+    @try { return [self fileDescriptor]; }
+    @catch (NSException *exception) { return -1; }
+}
+
 - (NSData *)readDataUpToLength:(NSUInteger)length error:(NSError **)error
 {
     if ([self isKindOfClass:[NSNullFileHandle class]]) return [NSData data];
-    int fd;
-    @try { fd = [self fileDescriptor]; }
-    @catch (NSException *exception) {
+    int fd = [self _checkedFileDescriptor];
+    if (fd < 0) {
         if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EBADF userInfo:nil];
         return nil;
     }
@@ -1535,9 +1543,8 @@ CF_PRIVATE
 - (BOOL)writeData:(NSData *)data error:(NSError **)error
 {
     if ([self isKindOfClass:[NSNullFileHandle class]]) return YES;
-    int fd;
-    @try { fd = [self fileDescriptor]; }
-    @catch (NSException *exception) {
+    int fd = [self _checkedFileDescriptor];
+    if (fd < 0) {
         if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EBADF userInfo:nil];
         return NO;
     }
