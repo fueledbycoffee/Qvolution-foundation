@@ -385,7 +385,16 @@ static void *__NSThread__main__(void *context)
         _NSIsMultiThreaded = 1;
        [[NSNotificationCenter defaultCenter] postNotificationName:NSWillBecomeMultiThreadedNotification object:nil userInfo:nil];
     }
-    pthread_create(&_thread, NULL, &__NSThread__main__, self);
+    int err = pthread_create(&_thread, &_attr, &__NSThread__main__, self);
+    if (err != 0)
+    {
+        // GUESS: the documentation does not say how -start reports a thread that cannot be
+        // created (for example an oversized -setStackSize:); undo the start and raise.
+        _state = NSThreadCreated;
+        [self release];
+        [NSException raise:NSInternalInconsistencyException format:@"NSThread: unable to create a thread (error %d)", err];
+        return;
+    }
     while (_state <= NSThreadStarted)
     {
         sched_yield();
