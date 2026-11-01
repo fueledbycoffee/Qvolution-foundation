@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--guard', type=Path, required=True)
 parser.add_argument('--scratch', type=Path, required=True)
+parser.add_argument('--shutdown', type=Path, required=True)
 options, remaining = parser.parse_known_args()
 
 
@@ -31,6 +32,13 @@ class HostGuardTests(unittest.TestCase):
         guard = work / 'dashboard/qv-host-guard'
         guard.parent.mkdir()
         shutil.copy2(options.guard, guard)
+        shutil.copy2(options.shutdown, guard.with_name('qv-shutdown'))
+        # Exercise the real retry helper without sleeping in native unit tests.
+        bin_dir = work / 'bin'
+        bin_dir.mkdir()
+        sleeper = bin_dir / 'sleep'
+        sleeper.write_text('#!/bin/sh\nexit 0\n')
+        sleeper.chmod(0o755)
         if mode == 'snapshot-fail':
             guard.write_text('#!/usr/bin/python3\nimport sys\nsys.exit(2)\n')
         home = work / 'home'
@@ -60,15 +68,25 @@ prefix = Path(os.environ['DPREFIX'])
 mode = os.environ['TEST_MODE']
 if sys.argv[1:] == ['shell', '/usr/bin/true']:
     assert not prefix.exists(), 'runner pre-created prefix'
-    (prefix / 'tmp').mkdir(parents=True)
+    (prefix / 'Applications').mkdir(parents=True)
+    (prefix / 'tmp').symlink_to('/qv-test-missing-tmp')
     (prefix / 'initialized').write_text('yes')
 elif sys.argv[1] == 'shutdown':
-    if mode == 'shutdown-write' and (prefix / 'tmp/imp-foundation').exists():
+    if mode == 'shutdown-fail': sys.exit(1)
+    if mode == 'shutdown-retry':
+        marker = prefix / 'shutdown-pending'
+        if not marker.exists():
+            marker.write_text('retry needed')
+            sys.exit(1)
+        marker.unlink()
+    if mode == 'shutdown-write' and (prefix / 'Applications/imp-foundation').exists():
         (Path.home() / 'Pictures/guest-write').write_text('preserve me')
 else:
     assert (prefix / 'initialized').exists()
+    assert sys.argv[2] == '/Applications/imp-foundation/load-exports'
+    assert (prefix / 'Applications/imp-foundation/load-exports').is_file()
     if mode == 'full-strong':
-        assert (prefix / 'tmp/imp-foundation/Foundation.txt').read_text() == 'full strong fixture\n'
+        assert (prefix / 'Applications/imp-foundation/Foundation.txt').read_text() == 'full strong fixture\n'
     if mode in ('write', 'failed-write'):
         (Path.home() / 'Documents/guest-write').write_text('preserve me')
     if mode == 'failed-write': sys.exit(7)
@@ -77,7 +95,7 @@ else:
         def git_result(args, **kwargs):
             self.assertEqual(args[0], 'git')
             return 'test\n' if 'rev-parse' in args else ''
-        with patch.dict(os.environ, HOME=str(home), TEST_MODE=mode), \
+        with patch.dict(os.environ, HOME=str(home), TEST_MODE=mode, PATH=str(bin_dir) + os.pathsep + os.environ['PATH']), \
              patch.object(subprocess, 'check_output', side_effect=git_result), \
              patch.object(sys, 'argv', [str(runner), *flags]), \
              contextlib.redirect_stdout(io.StringIO()):
@@ -94,6 +112,17 @@ else:
         code, result, _ = self.exercise('clean')
         self.assertEqual(code, 0)
         self.assertTrue(result['dlopen_test_passed'])
+        self.assertEqual(result['host_guard']['verify'], 0)
+
+    def test_shutdown_retries_after_init_and_fixture(self):
+        code, result, _ = self.exercise('shutdown-retry')
+        self.assertEqual(code, 0)
+        self.assertTrue(result['dlopen_test_passed'])
+
+    def test_shutdown_exhaustion_fails_and_still_guards(self):
+        code, result, _ = self.exercise('shutdown-fail')
+        self.assertNotEqual(code, 0)
+        self.assertFalse(result['dlopen_test_passed'])
         self.assertEqual(result['host_guard']['verify'], 0)
 
     def test_successful_fixture_cannot_hide_host_write(self):
