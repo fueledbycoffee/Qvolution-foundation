@@ -122,6 +122,13 @@ else:
         self.assertEqual(code, 0)
         self.assertIn('behavior-behavior', [s['step'] for s in result['steps']])
 
+    def test_baseline_keeps_import_manifest_identical_and_skips_behaviors(self):
+        _, candidate, _ = self.exercise('behavior')
+        code, baseline, _ = self.exercise('behavior', ['--baseline'])
+        self.assertEqual(code, 0)
+        self.assertEqual(candidate['manifest_sha256'], baseline['manifest_sha256'])
+        self.assertNotIn('behavior-behavior', [s['step'] for s in baseline['steps']])
+
     def test_behavior_failure_fails_candidate_and_still_guards(self):
         code, result, _ = self.exercise('behavior-fail')
         self.assertNotEqual(code, 0)
