@@ -360,6 +360,24 @@ set_property(
 endif (TARGET_x86_64 AND DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY)
 endif ()
 
+# A matched source build is selected explicitly: enabling the legacy option is
+# unsafe with Swift 6.3. The install must also select this overlay's complete
+# matching runtime (Darwin, ObjectiveC, CoreFoundation, Dispatch and Combine).
+set(DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY "" CACHE FILEPATH
+    "Source-built Swift Foundation overlay matching the selected x86_64 runtime")
+if (TARGET_x86_64 AND DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY)
+    if (DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY)
+        message(FATAL_ERROR "Select either the matching or legacy Foundation overlay")
+    endif ()
+    if (NOT EXISTS "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
+        message(FATAL_ERROR "Matching Swift Foundation overlay does not exist")
+    endif ()
+    set_property(TARGET Foundation_x86_64 APPEND_STRING PROPERTY LINK_FLAGS
+        " -Wl,-reexport_library,${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
+    set_property(TARGET Foundation_x86_64 APPEND PROPERTY LINK_DEPENDS
+        "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
+endif ()
+
 add_darling_executable(defaults tools/defaults.m)
 target_link_libraries(defaults Foundation)
 install(TARGETS defaults DESTINATION libexec/darling/usr/bin)

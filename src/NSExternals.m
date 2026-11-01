@@ -12,6 +12,9 @@
 #import <dispatch/dispatch.h>
 #import <CoreGraphics/CGBase.h>
 
+// swift-foundation dbacc677, CocoaError.swift underlyingErrors (Apache-2.0).
+NSString *const NSMultipleUnderlyingErrorsKey = @"NSMultipleUnderlyingErrorsKey";
+
 NSString *const NS_objects =  @"NS.objects";
 NSString *const NS_keys =  @"NS.keys";
 NSString *const NS_special =  @"NS.special";
