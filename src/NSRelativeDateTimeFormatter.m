@@ -10,6 +10,7 @@
 #include <unicode/unum.h>
 #include <math.h>
 #include <stdlib.h>
+#include <limits.h>
 
 @implementation NSRelativeDateTimeFormatter
 @synthesize locale = _locale, calendar = _calendar, dateTimeStyle = _dateTimeStyle;
@@ -94,7 +95,9 @@
     const URelativeDateTimeUnit units[] = { UDAT_REL_UNIT_YEAR, UDAT_REL_UNIT_MONTH, UDAT_REL_UNIT_WEEK,
         UDAT_REL_UNIT_DAY, UDAT_REL_UNIT_HOUR, UDAT_REL_UNIT_MINUTE, UDAT_REL_UNIT_SECOND };
     for (unsigned i = 0; i < 7; ++i) {
-        if (values[i] != NSUndefinedDateComponent && values[i] != 0) return [self _formatValue:values[i] unit:units[i]];
+        // CoreFoundation's NSDateComponents also uses INT_MAX for unset fields.
+        if (values[i] != INT_MAX && values[i] != NSUndefinedDateComponent && values[i] != 0)
+            return [self _formatValue:values[i] unit:units[i]];
     }
     return [self _formatValue:0 unit:UDAT_REL_UNIT_SECOND];
 }
