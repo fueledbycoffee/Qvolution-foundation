@@ -47,8 +47,6 @@ static NSUInteger NSMaxRange(NSRange r) { return r.location+r.length; }
 typedef NSUInteger NSStringEnumerationOptions;
 enum { NSStringEnumerationByLines=0, NSStringEnumerationByParagraphs=1,
  NSStringEnumerationByWords=3, NSStringEnumerationBySentences=4 };
-#define YES ((BOOL)1)
-#define NO ((BOOL)0)
 #define NSRangeException nil
 __attribute__((objc_root_class))
 @interface NSString { Class isa; @public CFStringRef text; }
@@ -119,11 +117,16 @@ int main(int argc, char **argv) {
 }
 '''
 (a.out / 'lines.m').write_text(preamble + '\n'.join(methods) + suffix)
+# Select Linux CF declarations while keeping the owned tokenizer body unchanged.
+tokenizer = (cf / 'CFStringTokenizer.c').read_text()
+for header in ('CFBase.h', 'CFRuntime.h'):
+    tokenizer = tokenizer.replace('"' + header + '"', '<CoreFoundation/' + header + '>')
+(a.out / 'tokenizer.c').write_text(tokenizer)
 lib = a.toolchain / 'lib/swift/linux'
 includes = ['-I'+str(a.toolchain/'lib/swift'), '-I'+str(a.toolchain/'lib/swift/CoreFoundation'), '-I'+str(cf)]
 command = ['/usr/bin/clang', '-g', '-O0', '-fblocks', '-fsanitize=address',
-           '-fno-omit-frame-pointer', '-I/usr/lib/gcc/x86_64-linux-gnu/15/include',
-           *includes, str(a.out/'lines.m'), str(cf/'CFStringTokenizer.c'),
+           '-fno-omit-frame-pointer', '-include', 'stdlib.h', '-I/usr/lib/gcc/x86_64-linux-gnu/15/include',
+           *includes, str(a.out/'lines.m'), str(a.out/'tokenizer.c'),
            '-L'+str(lib), '-Wl,-rpath,'+str(lib), '-lFoundation', '-lBlocksRuntime',
            '-l:libobjc.so.4', '-licui18n', '-licuuc', '-o', str(a.out/'lines')]
 subprocess.run(command, check=True)
