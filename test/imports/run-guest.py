@@ -43,7 +43,9 @@ env.update(DPREFIX=str(prefix),DARLING_NONROOT='1',DARLING_INSTALL_PREFIX=str(ro
 results=[]
 def run(name,args):
     with (log/f'{name}.log').open('x') as output:
-        proc=subprocess.run([str(launcher),*args],env=env,stdout=output,stderr=subprocess.STDOUT)
+        command=([str(W/'dashboard/qv-shutdown'),str(launcher)] if args==['shutdown']
+                 else [str(launcher),*args])
+        proc=subprocess.run(command,env=env,stdout=output,stderr=subprocess.STDOUT)
     results.append({'step':name,'returncode':proc.returncode,'args':args})
     return proc.returncode
 guard=W/'dashboard/qv-host-guard'
@@ -69,7 +71,7 @@ try:
     if code:raise RuntimeError('initialization failed')
     if run('initial-shutdown',['shutdown']):raise RuntimeError('shutdown failed')
     # Initialization and shutdown happen before writing anything into DPREFIX.
-    owned=prefix/'tmp/imp-foundation'
+    owned=prefix/'Applications/imp-foundation'
     owned.mkdir(exist_ok=False)
     import shutil
     payloads={'load-exports':fixture_path,
@@ -77,10 +79,10 @@ try:
        'Darwin.txt':L/'swift/tests/darwin-foundation-imports/exports.txt',
        'swiftFoundation.txt':L/'swift/tests/foundation-imports/exports.txt'}
     for name,source in payloads.items():shutil.copy2(source,owned/name)
-    args=['shell','/tmp/imp-foundation/load-exports',
-       '/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation','/tmp/imp-foundation/Foundation.txt',
-       '/usr/lib/swift/libswift_DarwinFoundation1.dylib','/tmp/imp-foundation/Darwin.txt',
-       '/usr/lib/swift/libswiftFoundation.dylib','/tmp/imp-foundation/swiftFoundation.txt']
+    args=['shell','/Applications/imp-foundation/load-exports',
+       '/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation','/Applications/imp-foundation/Foundation.txt',
+       '/usr/lib/swift/libswift_DarwinFoundation1.dylib','/Applications/imp-foundation/Darwin.txt',
+       '/usr/lib/swift/libswiftFoundation.dylib','/Applications/imp-foundation/swiftFoundation.txt']
     status=run('dlopen-all-exports',args)
 except Exception as exc:
     error=str(exc)
