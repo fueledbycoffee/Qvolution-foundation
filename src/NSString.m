@@ -1522,7 +1522,7 @@ CF_INLINE Boolean isALineSeparatorTypeCharacter(UniChar ch, Boolean includeLineE
         else
         {
             NSInteger idx = range.location;
-            ch = [self characterAtIndex:idx];
+            ch = idx < len ? [self characterAtIndex:idx] : 0;
             idx--;
             if (ch == NewLine && [self characterAtIndex:idx] == CarriageReturn)
             {
@@ -1593,7 +1593,7 @@ CF_INLINE Boolean isALineSeparatorTypeCharacter(UniChar ch, Boolean includeLineE
                 else
                 {
                     idx++;
-                    ch = [self characterAtIndex:idx];
+                    ch = idx < len ? [self characterAtIndex:idx] : 0;
                 }
             }
         }
@@ -1995,20 +1995,52 @@ static const char* bytesInEncoding(NSString *string, BOOL externalRep, NSStringE
         return;
     }
 
-    CFOptionFlags options = 0;
-    if ((opts & NSStringEnumerationByLines) != 0)
+    if ((opts & 0xff) == NSStringEnumerationByLines)
     {
-        options |= kCFStringTokenizerUnitLineBreak;
+        NSUInteger length = [self length];
+        if (range.location > length || range.length > length - range.location)
+        {
+            [NSException raise:NSRangeException format:@"specified range is out of bounds of string"];
+            return;
+        }
+        BOOL reverse = (opts & NSStringEnumerationReverse) != 0;
+        NSUInteger limit = NSMaxRange(range);
+        NSUInteger cursor = reverse && range.length ? limit - 1 : range.location;
+        BOOL stop = NO;
+        while (range.length && cursor >= range.location && cursor < limit && !stop)
+        {
+            NSUInteger start, end, contentsEnd;
+            [self getLineStart:&start end:&end contentsEnd:&contentsEnd forRange:NSMakeRange(cursor, 0)];
+            start = MAX(start, range.location);
+            end = MIN(end, limit);
+            contentsEnd = MAX(start, MIN(contentsEnd, end));
+            NSRange substringRange = NSMakeRange(start, contentsEnd - start);
+            NSRange enclosingRange = NSMakeRange(start, end - start);
+            NSString *substring = (opts & NSStringEnumerationSubstringNotRequired) ? nil : [self substringWithRange:substringRange];
+            block(substring, substringRange, enclosingRange, &stop);
+            if (reverse)
+            {
+                if (start == range.location) break;
+                cursor = start - 1;
+            }
+            else
+            {
+                cursor = end;
+            }
+        }
+        return;
     }
-    if ((opts & NSStringEnumerationByParagraphs) != 0)
+
+    CFOptionFlags options = 0;
+    if ((opts & 0xff) == NSStringEnumerationByParagraphs)
     {
         options |= kCFStringTokenizerUnitParagraph;
     }
-    if ((opts & NSStringEnumerationByWords) != 0)
+    else if ((opts & 0xff) == NSStringEnumerationByWords)
     {
         options |= kCFStringTokenizerUnitWord;
     }
-    if ((opts & NSStringEnumerationBySentences) != 0)
+    else if ((opts & 0xff) == NSStringEnumerationBySentences)
     {
         options |= kCFStringTokenizerUnitSentence;
     }

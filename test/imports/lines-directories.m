@@ -21,6 +21,23 @@ int main(void) {
     checkLines(@"", @[]);
     checkLines(@"\n\r\n\r", @[@"", @"", @""]);
     checkLines(@"a\u0085b\u2028c\u2029d", @[@"a", @"b", @"c", @"d"]);
+    NSMutableArray *reverse = [NSMutableArray array];
+    [@"a\r\nb\r\n" enumerateSubstringsInRange:NSMakeRange(0, 6)
+        options:NSStringEnumerationByLines | NSStringEnumerationReverse
+        usingBlock:^(NSString *line, NSRange substring, NSRange enclosing, BOOL *stop) {
+            [reverse addObject:line];
+        }];
+    require([reverse isEqual:@[@"b", @"a"]], "reverse lines exclude terminators");
+    __block NSUInteger clipped = 0;
+    [@"ab\r\ncd" enumerateSubstringsInRange:NSMakeRange(1, 4)
+        options:NSStringEnumerationByLines | NSStringEnumerationSubstringNotRequired
+        usingBlock:^(NSString *line, NSRange substring, NSRange enclosing, BOOL *stop) {
+            require(line == nil, "substring not required");
+            require(substring.location == (clipped ? 4 : 1) && substring.length == 1, "clipped substring range");
+            require(enclosing.location == substring.location && enclosing.length == (clipped ? 1 : 3), "clipped enclosing range");
+            ++clipped;
+        }];
+    require(clipped == 2, "clipped line count");
     __block NSUInteger count = 0;
     [@"éclair\r\nlast" enumerateLinesUsingBlock:^(NSString *line, BOOL *stop) {
         require([line isEqual:@"éclair"], "original Swift client first line");
