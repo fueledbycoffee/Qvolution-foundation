@@ -505,11 +505,6 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
 }
 
 - (NSArray *)URLsForDirectory:(NSSearchPathDirectory)directory inDomains:(NSSearchPathDomainMask)domainMask {
-    // Only NSUserDomain is supported on iOS
-    if (domainMask != NSUserDomainMask)
-    {
-        return @[];
-    }
     NSArray *pathsForDirectory = NSSearchPathForDirectoriesInDomains(directory, domainMask, YES);
     NSMutableArray *urls = [NSMutableArray arrayWithCapacity:[pathsForDirectory count]];
 
