@@ -1641,8 +1641,49 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
     }
     else
     {
-        BOOL temp = result->relevantNotification->reserved;
-        CFArrayRemoveValueAtIndex(result->pendingNotifications, result->relevantNotificationIndex);
+        // The notification delivered by the previous call is still in the array. The observer
+        // callback that ran in between can have pushed and popped other entries, so the array
+        // index recorded then is not trustworthy. Without a balanced will/did (documented
+        // requirement, rung 3) an inner did can pop an entry that sits below this one, which
+        // shifts it down and used to leave the recorded index past the end of the array: the
+        // removal below then released whatever lay beyond it, typically NULL.
+        // GUESS (rung 6): tolerate that by finding the entry again by identity. Nothing in the
+        // documentation says what a did should do about stale entries left by an unmatched will.
+        NSKVOPendingNotificationInfo *delivered = result->relevantNotification;
+        NSInteger deliveredIndex = result->relevantNotificationIndex;
+        NSInteger count = CFArrayGetCount(result->pendingNotifications);
+        BOOL temp = delivered->reserved;
+        NSInteger foundIndex = -1;
+        if (deliveredIndex >= 0 && deliveredIndex < count && CFArrayGetValueAtIndex(result->pendingNotifications, deliveredIndex) == delivered)
+        {
+            foundIndex = deliveredIndex;
+        }
+        else
+        {
+            for (NSInteger searchIndex = count - 1; searchIndex >= 0; searchIndex--)
+            {
+                if (CFArrayGetValueAtIndex(result->pendingNotifications, searchIndex) == delivered)
+                {
+                    foundIndex = searchIndex;
+                    break;
+                }
+            }
+        }
+        if (foundIndex >= 0)
+        {
+            CFArrayRemoveValueAtIndex(result->pendingNotifications, foundIndex);
+            count--;
+            deliveredIndex = foundIndex;
+        }
+        else if (deliveredIndex > count)
+        {
+            // An inner did already popped it. Resume below whatever is left.
+            deliveredIndex = count;
+        }
+        // Drop the hold taken when it was delivered; this may be the last reference.
+        _NSKVOPendingNotificationRelease(NULL, delivered);
+        result->relevantNotification = NULL;
+        result->relevantNotificationIndex = deliveredIndex;
         if (temp)
         {
             #warning TODO: This return breaks having multiple observers of the same object & key. Work out what it's meant to do!
@@ -1674,7 +1715,10 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
                 *outChangeDetails = pendingNotification->changeDetails;
                 *outKeyOrKeys = key;
                 *outForwardingValues = pendingNotification->forwardingValues;
-                result->relevantNotification = pendingNotification; //this seems unlikely. 
+                // Hold it until the next call: the observer callback may pop it through an inner did.
+                // If the callback throws, this hold is never dropped and the entry leaks with the
+                // rest of that abandoned did, as the entry itself already did.
+                result->relevantNotification = (NSKVOPendingNotificationInfo *)_NSKVOPendingNotificationRetain(NULL, pendingNotification); //this seems unlikely. 
                 result->relevantNotificationIndex = cursor;
                 success = YES;
                 break;
