@@ -1,0 +1,2 @@
+add_darling_executable(foundation_nsdate_calendar_format main.m)
+target_link_libraries(foundation_nsdate_calendar_format Foundation)

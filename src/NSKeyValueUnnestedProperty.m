@@ -144,68 +144,74 @@
 }
 - (BOOL)object:(NSObject *)object withObservance:(NSKeyValueObservance *)observance willChangeValueForKeyOrKeys:(id)keyOrKeys recurse:(BOOL)shouldRecurse forwardingValues:(NSKeyValueForwardingValues *)forwardingValues
 {
-    //TODO: double check this is right. 
     NSMutableDictionary *dict = nil;
     if (shouldRecurse)
     {
-        BOOL isKeys = [keyOrKeys isNSSet__];
-        for (NSKeyValueProperty *affectingProperty in self.affectingProperties)
+        @try
         {
-            NSString *relevantKeyPath = nil;
-            if (isKeys)
+            BOOL isKeys = [keyOrKeys isNSSet__];
+            for (NSKeyValueProperty *affectingProperty in self.affectingProperties)
             {
-                relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForMemberOfKeys:keyOrKeys];
-            }
-            else
-            {
-                relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForKey:keyOrKeys exactMatch:NULL];
-            }
-            if (relevantKeyPath != nil)
-            {
-                if ([affectingProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:forwardingValues])
+                NSString *relevantKeyPath = nil;
+                if (isKeys)
                 {
-                    if (forwardingValues->_field1 != nil)
+                    relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForMemberOfKeys:keyOrKeys];
+                }
+                else
+                {
+                    relevantKeyPath = [affectingProperty keyPathIfAffectedByValueForKey:keyOrKeys exactMatch:NULL];
+                }
+                if (relevantKeyPath != nil)
+                {
+                    NSKeyValueForwardingValues childValues = {0};
+                    if ([affectingProperty object:object withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:&childValues])
                     {
-                        if (dict == nil)
+                        if (childValues._field1 != nil)
                         {
-                            dict = [NSMutableDictionary dictionaryWithObject:forwardingValues->_field1 forKey:relevantKeyPath];
+                            // Keep the property that consumes this old target, including NSNull for nil.
+                            if (dict == nil)
+                            {
+                                dict = [[NSMutableDictionary alloc] initWithCapacity:1];
+                            }
+                            [dict setObject:childValues._field1 forKey:affectingProperty];
                         }
-                        else
+                        [childValues._field1 release];
+                        if (childValues.recursedMutableDictionary != nil)
                         {
-                            [dict setObject:forwardingValues->_field1 forKey:relevantKeyPath]; //This in particular looks a bit suspicious. TODO: cross-check it with the nested version.
-                            // In the only case we've ever seen of this being used, _field1 is an observance, and the key is the nested observable. 
-                        }
-                    }
-                    if (forwardingValues->recursedMutableDictionary != nil)
-                    {
-                        if (dict == nil)
-                        {
-                            dict = forwardingValues->recursedMutableDictionary; // !!
-                        }
-                        else
-                        {
-                            [dict addEntriesFromDictionary:forwardingValues->recursedMutableDictionary];
+                            if (dict == nil)
+                            {
+                                dict = childValues.recursedMutableDictionary; // Transfer ownership.
+                            }
+                            else
+                            {
+                                [dict addEntriesFromDictionary:childValues.recursedMutableDictionary];
+                                [childValues.recursedMutableDictionary release];
+                            }
                         }
                     }
                 }
             }
         }
+        @catch (id exception)
+        {
+            // The caller never receives the dictionary, so nothing else will release it.
+            [dict release];
+            @throw;
+        }
     }
     forwardingValues->_field1 = nil;
     forwardingValues->recursedMutableDictionary = dict;
-    //the lack of retain/release mangagement here is because the ownership of these objects is managed by NSKVOPendingNotificationInfo. 
     return YES;
 }
 
 - (void)object:(NSObject *)object withObservance:(NSKeyValueObservance *)observance didChangeValueForKeyOrKeys:(id)keyOrKeys recurse:(BOOL)shouldRecurse forwardingValues:(NSKeyValueForwardingValues)forwardingValues
 {
 
-    for (NSString *key in forwardingValues.recursedMutableDictionary)
+    for (NSKeyValueProperty *affectingProperty in forwardingValues.recursedMutableDictionary)
     {
-        NSKeyValueProperty *value = forwardingValues.recursedMutableDictionary[key];
-        NSKeyValueForwardingValues newValues = { ._field1 = value, .recursedMutableDictionary = nil}; // this makes no sense except in the context of the leaf of a nested key path depended on by an unnested key. Yeesh. 
-                                                                                                      // there has GOT to be a more elegant way to do this. 
-        [value object:object withObservance:observance didChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:newValues];
+        id value = forwardingValues.recursedMutableDictionary[affectingProperty];
+        NSKeyValueForwardingValues newValues = { ._field1 = value, .recursedMutableDictionary = nil};
+        [affectingProperty object:object withObservance:observance didChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:newValues];
     }
 }
 

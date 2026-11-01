@@ -3,3 +3,6 @@ add_subdirectory(header-shapes)
 
 add_subdirectory(objc-startup)
 add_subdirectory(nsarchiver-shared-labels)
+add_subdirectory(kvo-dependent-forwarding)
+add_subdirectory(kvo-pending-notifications)
+add_subdirectory(nsdate-calendar-format)

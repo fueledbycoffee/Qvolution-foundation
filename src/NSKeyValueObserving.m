@@ -1305,19 +1305,29 @@ void _NSKeyValueWillChange(id self, id keyOrKeys, BOOL keyOrKeysIsASet, NSKeyVal
                     NSKeyValueForwardingValues forwardingValues = {0};
                     if ([property object:self withObservance:observance willChangeValueForKeyOrKeys:keyOrKeys recurse:YES forwardingValues:&forwardingValues])
                     {
-                        BOOL reatinedDetails = NO;
-                        apply(&changeResult, self, relevantKeyPath, exactMatch, observance.options, reserved2, forwardingValues, &reatinedDetails);
-                        pushFn(self, keyOrKeys, observance, forwardingValues, kvoTSD, changeResult);
-                        if (observance.options & NSKeyValueObservingOptionPrior)
+                        @try
                         {
-                            _NSKeyValueNotifyObserver(observance.observer, self, observance.originalObservable, relevantKeyPath, changeResult, observance.context, YES);
+                            BOOL reatinedDetails = NO;
+                            apply(&changeResult, self, relevantKeyPath, exactMatch, observance.options, reserved2, forwardingValues, &reatinedDetails);
+                            pushFn(self, keyOrKeys, observance, forwardingValues, kvoTSD, changeResult);
+                            if (observance.options & NSKeyValueObservingOptionPrior)
+                            {
+                                _NSKeyValueNotifyObserver(observance.observer, self, observance.originalObservable, relevantKeyPath, changeResult, observance.context, YES);
+                            }
+                            if (reatinedDetails)
+                            {
+                                [changeResult.oldValue release];
+                                [changeResult.newValue release];
+                                [changeResult.indexes release];
+                                [changeResult.extraData release];
+                            }
                         }
-                        if (reatinedDetails)
+                        @finally
                         {
-                            [changeResult.oldValue release];
-                            [changeResult.newValue release];
-                            [changeResult.indexes release];
-                            [changeResult.extraData release];
+                            // apply may invoke a getter that drains an autorelease pool.
+                            // Keep the will-change result alive until push has retained it.
+                            [forwardingValues._field1 release];
+                            [forwardingValues.recursedMutableDictionary release];
                         }
                     }
                 }
@@ -1580,18 +1590,32 @@ void _NSKeyValueDidChange(NSObject *observable, id keyOrKeys, BOOL keyOrKeysIsAS
     NSKeyValueChangeDetails fillDetails = {0};
     NSKeyValueForwardingValues forwardingValues = {0};
     id outKeyOrKeys = nil;
-    while (popFn(observable, keyOrKeys, &outObservance, &fillDetails, &forwardingValues, &outKeyOrKeys, result))
+    @try
     {
-        [outObservance.property object:observable withObservance:outObservance didChangeValueForKeyOrKeys:outKeyOrKeys recurse:YES forwardingValues:forwardingValues];
-        NSString *keyPath = [outObservance.property keyPath];
-        BOOL isDifferent = NO;
-        if (keyOrKeysIsASet == NO)
+        while (popFn(observable, keyOrKeys, &outObservance, &fillDetails, &forwardingValues, &outKeyOrKeys, result))
         {
-            isDifferent = !CFEqual(keyPath, outKeyOrKeys);
+            [outObservance.property object:observable withObservance:outObservance didChangeValueForKeyOrKeys:outKeyOrKeys recurse:YES forwardingValues:forwardingValues];
+            NSString *keyPath = [outObservance.property keyPath];
+            BOOL isDifferent = NO;
+            if (keyOrKeysIsASet == NO)
+            {
+                isDifferent = !CFEqual(keyPath, outKeyOrKeys);
+            }
+            NSKeyValueChangeDetails appliedDetails = {0}; // possibly the wrong struct here. 
+            apply(&appliedDetails, observable, keyPath, isDifferent, outObservance.options, fillDetails);
+            _NSKeyValueNotifyObserver(outObservance.observer, observable, outObservance.originalObservable, keyPath, appliedDetails, outObservance.context, NO);
         }
-        NSKeyValueChangeDetails appliedDetails = {0}; // possibly the wrong struct here. 
-        apply(&appliedDetails, observable, keyPath, isDifferent, outObservance.options, fillDetails);
-        _NSKeyValueNotifyObserver(outObservance.observer, observable, outObservance.originalObservable, keyPath, appliedDetails, outObservance.context, NO);
+    }
+    @finally
+    {
+        // An observer that throws abandons the delivery in progress. The pop only drops its
+        // hold on the delivered entry on its next call, which now never comes. Drop it here;
+        // the entry stays in the array, so a later did can still pop and free it.
+        if (result->relevantNotification != NULL)
+        {
+            _NSKVOPendingNotificationRelease(NULL, result->relevantNotification);
+            result->relevantNotification = NULL;
+        }
     }
 }
 
@@ -1631,8 +1655,49 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
     }
     else
     {
-        BOOL temp = result->relevantNotification->reserved;
-        CFArrayRemoveValueAtIndex(result->pendingNotifications, result->relevantNotificationIndex);
+        // The notification delivered by the previous call is still in the array. The observer
+        // callback that ran in between can have pushed and popped other entries, so the array
+        // index recorded then is not trustworthy. Without a balanced will/did (documented
+        // requirement, rung 3) an inner did can pop an entry that sits below this one, which
+        // shifts it down and used to leave the recorded index past the end of the array: the
+        // removal below then released whatever lay beyond it, typically NULL.
+        // GUESS (rung 6): tolerate that by finding the entry again by identity. Nothing in the
+        // documentation says what a did should do about stale entries left by an unmatched will.
+        NSKVOPendingNotificationInfo *delivered = result->relevantNotification;
+        NSInteger deliveredIndex = result->relevantNotificationIndex;
+        NSInteger count = CFArrayGetCount(result->pendingNotifications);
+        BOOL temp = delivered->reserved;
+        NSInteger foundIndex = -1;
+        if (deliveredIndex >= 0 && deliveredIndex < count && CFArrayGetValueAtIndex(result->pendingNotifications, deliveredIndex) == delivered)
+        {
+            foundIndex = deliveredIndex;
+        }
+        else
+        {
+            for (NSInteger searchIndex = count - 1; searchIndex >= 0; searchIndex--)
+            {
+                if (CFArrayGetValueAtIndex(result->pendingNotifications, searchIndex) == delivered)
+                {
+                    foundIndex = searchIndex;
+                    break;
+                }
+            }
+        }
+        if (foundIndex >= 0)
+        {
+            CFArrayRemoveValueAtIndex(result->pendingNotifications, foundIndex);
+            count--;
+            deliveredIndex = foundIndex;
+        }
+        else if (deliveredIndex > count)
+        {
+            // An inner did already popped it. Resume below whatever is left.
+            deliveredIndex = count;
+        }
+        // Drop the hold taken when it was delivered; this may be the last reference.
+        _NSKVOPendingNotificationRelease(NULL, delivered);
+        result->relevantNotification = NULL;
+        result->relevantNotificationIndex = deliveredIndex;
         if (temp)
         {
             #warning TODO: This return breaks having multiple observers of the same object & key. Work out what it's meant to do!
@@ -1664,15 +1729,23 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
                 *outChangeDetails = pendingNotification->changeDetails;
                 *outKeyOrKeys = key;
                 *outForwardingValues = pendingNotification->forwardingValues;
-                result->relevantNotification = pendingNotification; //this seems unlikely. 
+                // Hold it until the next call: the observer callback may pop it through an inner did.
+                // If the callback throws, this hold is never dropped and the entry leaks with the
+                // rest of that abandoned did, as the entry itself already did.
+                result->relevantNotification = (NSKVOPendingNotificationInfo *)_NSKVOPendingNotificationRetain(NULL, pendingNotification); //this seems unlikely. 
                 result->relevantNotificationIndex = cursor;
                 success = YES;
                 break;
             }
             else
             {
+                // The array normally holds the only reference, so removing the entry frees it:
+                // look at the count first, never at the entry afterwards.
+                // GUESS (rung 6): once a dead entry is gone keep scanning; stop only when
+                // somebody else (an outer did's delivery hold) still owns the entry.
+                BOOL lastReference = (pendingNotification->retainCount == 1);
                 CFArrayRemoveValueAtIndex(result->pendingNotifications, cursor);
-                if (pendingNotification->retainCount == 0)
+                if (lastReference)
                 {
                     continue;
                 }

@@ -200,11 +200,30 @@ OBJC_PROTOCOL_IMPL_POP
 }
 
 - (NSString *) descriptionWithCalendarFormat: (NSString *) format locale: (id) locale {
-    if (format == nil) format = _format ?: @"%Y-%m-%d %H:%M:%S %z";
+    return [self descriptionWithCalendarFormat: format ?: _format timeZone: [self timeZone] locale: locale];
+}
+
+- (NSString *) descriptionWithCalendarFormat: (NSString *) format {
+    return [self descriptionWithCalendarFormat: format locale: nil];
+}
+
+- (NSString *) description {
+    return [self descriptionWithCalendarFormat: _format locale: nil];
+}
+
+@end
+
+@implementation NSDate (NSCalendarDate)
+
+// Rung 4: Chess sends this selector to __NSDate. GUESS (rung 6): extend
+// our existing NSCalendarDate formatter to NSDate, using the supplied zone
+// or the default zone and retaining the existing nil-format literal.
+- (NSString *) descriptionWithCalendarFormat: (NSString *) format timeZone: (NSTimeZone *) aTimeZone locale: (id) locale {
+    if (format == nil) format = @"%Y-%m-%d %H:%M:%S %z";
+    NSTimeZone *tz = aTimeZone ?: [NSTimeZone defaultTimeZone];
     if ([format rangeOfString: @"%"].location != NSNotFound) {
-        NSTimeZone *tz = _timeZone ?: [NSTimeZone defaultTimeZone];
         NSInteger offset = [tz secondsFromGMTForDate: self];
-        time_t t = (time_t)(_ti + 978307200.0 + offset);
+        time_t t = (time_t)([self timeIntervalSince1970] + offset);
         struct tm tmVal;
         gmtime_r(&t, &tmVal);
 
@@ -231,19 +250,11 @@ OBJC_PROTOCOL_IMPL_POP
     }
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
     [df setDateFormat: format];
-    if (_timeZone) [df setTimeZone: _timeZone];
+    [df setTimeZone: tz];
     if (locale) [df setLocale: locale];
     NSString *res = [df stringFromDate: self];
     [df release];
     return res ?: @"";
-}
-
-- (NSString *) descriptionWithCalendarFormat: (NSString *) format {
-    return [self descriptionWithCalendarFormat: format locale: nil];
-}
-
-- (NSString *) description {
-    return [self descriptionWithCalendarFormat: _format locale: nil];
 }
 
 @end

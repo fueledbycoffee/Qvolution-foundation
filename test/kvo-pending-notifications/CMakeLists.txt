@@ -1,0 +1,2 @@
+add_darling_executable(foundation_kvo_pending_notifications main.m)
+target_link_libraries(foundation_kvo_pending_notifications Foundation)

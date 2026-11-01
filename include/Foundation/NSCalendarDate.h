@@ -2,6 +2,12 @@
 
 @class NSTimeZone, NSString, NSCalendar, NSLocale;
 
+@interface NSDate (NSCalendarDate)
+
+- (NSString *) descriptionWithCalendarFormat:(NSString *)format timeZone:(NSTimeZone *)aTimeZone locale:(id)locale;
+
+@end
+
 @interface NSCalendarDate (NSCalendarDateMethods)
 
 + (id) calendarDate;
