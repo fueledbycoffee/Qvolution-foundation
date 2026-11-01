@@ -14,7 +14,7 @@
     NSMutableDictionary<NSString*,NSString*>* map;
     CFMutableDictionaryRef _objectLabels;
     CFMutableDictionaryRef _classLabels;
-    NSUInteger _nextClassLabel;
+    NSUInteger _nextClassLabel; // Unused ABI slot; _nextObjectLabel numbers all labels.
     NSMutableDictionary<NSData*,NSNumber*>* _sharedStrings;
     NSUInteger _nextObjectLabel;
     CFMutableSetRef _unconditionalObjects;
@@ -53,7 +53,7 @@
     NSMutableDictionary*    _sharedObjects;
     NSUInteger              _sharedObjectCounter;
     NSMutableDictionary*    _sharedClasses;
-    NSUInteger              _sharedClassCounter;
+    NSUInteger              _sharedClassCounter; // Unused ABI slot; use _sharedObjectCounter.
     NSMutableDictionary*    _versionByClassName;
     NSMutableDictionary<NSString*,NSString*>* _classNameMap;
     unsigned _systemVersion;
