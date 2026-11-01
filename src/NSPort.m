@@ -156,7 +156,7 @@ const NSNotificationName NSPortDidBecomeInvalidNotification = @"NSPortDidBecomeI
 @end
 
 
-@implementation NSMachPort
+@implementation NSMachPort (NSMachPort)
 
 + (NSPort *) portWithMachPort: (uint32_t) machPort
 {
