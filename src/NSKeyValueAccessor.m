@@ -43,6 +43,7 @@ CFSetCallBacks _NSKVOSetterCallbacks = {
 };
 
 static Method NSKeyValueMethodForPattern(Class cls, const char* pattern, const char* key);
+static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, NSUInteger prefixLen);
 
 @implementation NSKeyValueAccessor
 
@@ -780,11 +781,10 @@ static NSUInteger __NSSetupKeyBuffer(const char *prefix, NSString *key, const ch
         return setter;
     }
     char *keyStr = NULL;
-    NSUInteger keyLen = [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
     NSUInteger prefixLen = __NSSetupKeyBuffer("_set", key, ":", &keyStr); // "_setFoo:"
     do {
         // setKey:
-        keyStr[prefixLen] = toupper(keyStr[prefixLen]);
+        keyStr[prefixLen] = toupper((unsigned char)keyStr[prefixLen]);
         Method m = class_getInstanceMethod(cls, sel_getUid(&keyStr[1]));
         if (m != NULL)
         {
@@ -802,46 +802,7 @@ static NSUInteger __NSSetupKeyBuffer(const char *prefix, NSString *key, const ch
 
         if ([cls accessInstanceVariablesDirectly])
         {
-            Ivar iv = NULL;
-            keyStr[3] = '_';
-            keyStr[4 + keyLen] = '\0';
-            keyStr[4] = tolower(keyStr[4]);
-
-            // _key
-            iv = class_getInstanceVariable(cls, &keyStr[3]);
-            if (iv != NULL)
-            {
-                setter = [[NSKeyValueIvarSetter alloc] initWithContainerClassID:cls key:key containerIsa:cls ivar:iv];
-                break;
-            }
-
-            // key
-            iv = class_getInstanceVariable(cls, &keyStr[4]);
-            if (iv != NULL)
-            {
-                setter = [[NSKeyValueIvarSetter alloc] initWithContainerClassID:cls key:key containerIsa:cls ivar:iv];
-                break;
-            }
-
-            keyStr[1] = '_';
-            keyStr[2] = 'i';
-            keyStr[3] = 's';
-            keyStr[4] = toupper(keyStr[4]);
-
-            // _isKey
-            iv = class_getInstanceVariable(cls, &keyStr[1]);
-            if (iv != NULL)
-            {
-                setter = [[NSKeyValueIvarSetter alloc] initWithContainerClassID:cls key:key containerIsa:cls ivar:iv];
-                break;
-            }
-
-            keyStr[2] = 'i';
-            keyStr[3] = 's';
-            keyStr[4] = toupper(keyStr[4]);
-
-            // isKey
-            iv = class_getInstanceVariable(cls, &keyStr[2]);
+            Ivar iv = __NSKeyValueIvarForPattern(cls, key, keyStr, prefixLen);
             if (iv != NULL)
             {
                 setter = [[NSKeyValueIvarSetter alloc] initWithContainerClassID:cls key:key containerIsa:cls ivar:iv];
@@ -849,7 +810,7 @@ static NSUInteger __NSSetupKeyBuffer(const char *prefix, NSString *key, const ch
             }
         }
 
-        setter = [NSObject _createValuePrimitiveSetterWithContainerClassID:cls key:key];
+        setter = [NSObject _createOtherValueSetterWithContainerClassID:cls key:key];
 
     } while (0);
 
@@ -871,7 +832,7 @@ static NSUInteger __NSSetupKeyBuffer(const char *prefix, NSString *key, const ch
     NSUInteger prefixLen = __NSSetupKeyBuffer("_setPrimitive", key, ":", &keyStr);
     do {
         // setPrimitiveFoo:
-        keyStr[prefixLen] = toupper(keyStr[prefixLen]);
+        keyStr[prefixLen] = toupper((unsigned char)keyStr[prefixLen]);
         Method m = class_getInstanceMethod(cls, sel_getUid(&keyStr[1]));
         if (m != NULL)
         {
@@ -906,37 +867,30 @@ static NSUInteger __NSSetupKeyBuffer(const char *prefix, NSString *key, const ch
 
 static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, NSUInteger prefixLen)
 {
-    Ivar iv = NULL;
-
+    char firstCharOriginal = [key UTF8String][0];
+    char firstCharUpper = toupper((unsigned char)firstCharOriginal);
+    keyStr[prefixLen + [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding]] = '\0';
     keyStr[prefixLen-1] = '_';
-    keyStr[prefixLen] = tolower(keyStr[prefixLen]);
-    iv = class_getInstanceVariable(cls, &keyStr[prefixLen-1]); // "_foo"
+    keyStr[prefixLen] = firstCharOriginal;
+    Ivar iv = class_getInstanceVariable(cls, &keyStr[prefixLen-1]);
     if (iv != NULL)
-    {
         return iv;
-    }
 
     keyStr[prefixLen-3] = '_';
     keyStr[prefixLen-2] = 'i';
     keyStr[prefixLen-1] = 's';
-    keyStr[prefixLen] = toupper(keyStr[prefixLen]);
-    iv = class_getInstanceVariable(cls, &keyStr[prefixLen-3]); // "_isFoo"
+    keyStr[prefixLen] = firstCharUpper;
+    iv = class_getInstanceVariable(cls, &keyStr[prefixLen-3]);
     if (iv != NULL)
-    {
         return iv;
-    }
 
-    keyStr[prefixLen] = tolower(keyStr[prefixLen]);
-    iv = class_getInstanceVariable(cls, &keyStr[prefixLen]); // "foo"
+    keyStr[prefixLen] = firstCharOriginal;
+    iv = class_getInstanceVariable(cls, &keyStr[prefixLen]);
     if (iv != NULL)
-    {
         return iv;
-    }
 
-    keyStr[prefixLen] = toupper(keyStr[prefixLen]);
-    iv = class_getInstanceVariable(cls, &keyStr[prefixLen-2]); // "isFoo"
-
-    return iv;
+    keyStr[prefixLen] = firstCharUpper;
+    return class_getInstanceVariable(cls, &keyStr[prefixLen-2]);
 }
 
 + (NSKeyValueGetter*)_createOtherValueGetterWithContainerClassID:(Class)cls key:(NSString *)key
@@ -951,7 +905,7 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
     NSUInteger prefixLen = __NSSetupKeyBuffer("_getPrimitive", key, "", &keyStr); // "_getPrimitive"
 
     do {
-        keyStr[prefixLen] = toupper(keyStr[prefixLen]);
+        keyStr[prefixLen] = toupper((unsigned char)keyStr[prefixLen]);
         SEL selector = sel_registerName(&keyStr[1]); // "getPrimitiveFoo"
         Method m = class_getInstanceMethod(cls, selector);
         if (m != NULL)
@@ -1011,7 +965,7 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
     char *keyStr = NULL;
     NSUInteger prefixLen = __NSSetupKeyBuffer("_get", key, "", &keyStr); // "_get"
     char firstCharOriginal = keyStr[4];
-    char firstCharUpper = toupper(keyStr[4]);
+    char firstCharUpper = toupper((unsigned char)keyStr[4]);
 
     do {
         keyStr[4] = firstCharUpper;
@@ -1036,16 +990,6 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
         keyStr[3] = 's';
         keyStr[4] = firstCharUpper;
         selector = sel_registerName(&keyStr[2]); // _g"isFoo"
-        m = class_getInstanceMethod(cls, selector);
-        if (m != NULL)
-        {
-            getter = [[NSKeyValueMethodGetter alloc] initWithContainerClassID:cls key:key method:m];
-            break;
-        }
-
-        keyStr[2] = 'e';
-        keyStr[3] = 't';
-        selector = sel_registerName(&keyStr[0]); // "_getFoo"
         m = class_getInstanceMethod(cls, selector);
         if (m != NULL)
         {
@@ -1123,7 +1067,7 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
 
     if (!getter)
     {
-        getter = [NSObject _createValuePrimitiveGetterWithContainerClassID:cls key:key];
+        getter = [NSObject _createOtherValueGetterWithContainerClassID:cls key:key];
     }
 
     CFSetAddValue(NSKVOGetters, getter);
@@ -1180,7 +1124,7 @@ static Method NSKeyValueMethodForPattern(Class cls, const char* pattern, const c
 
         if ([key length] != 0)
         {
-            keyBuffer[0] = toupper(keyBuffer[0]);
+            keyBuffer[0] = toupper((unsigned char)keyBuffer[0]);
         }
 
         // We already hold NSKVOLock
@@ -1275,7 +1219,7 @@ static Method NSKeyValueMethodForPattern(Class cls, const char* pattern, const c
         
         if ([key length] != 0)
         {
-            keyBuffer[0] = toupper(keyBuffer[0]);
+            keyBuffer[0] = toupper((unsigned char)keyBuffer[0]);
         }
         
         NSKeyValueGetter *getter = [NSObject _createValueGetterWithContainerClassID:cls key:key];
@@ -1364,7 +1308,7 @@ static Method NSKeyValueMethodForPattern(Class cls, const char* pattern, const c
         
         if ([key length] != 0)
         {
-            keyBuffer[0] = toupper(keyBuffer[0]);
+            keyBuffer[0] = toupper((unsigned char)keyBuffer[0]);
         }
         
         NSKeyValueGetter *getter = [NSObject _createValueGetterWithContainerClassID:cls key:key];
