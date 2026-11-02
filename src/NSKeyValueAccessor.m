@@ -365,6 +365,10 @@ DEFINE_SET_WITH_METHOD2(Rect, CGRect, rectValue, NSRectToCGRect)
     {
         _extraArgument2 = method;
     }
+    else
+    {
+        _implementation = method_getImplementation(method);
+    }
 }
 
 @end
