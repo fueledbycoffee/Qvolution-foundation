@@ -659,9 +659,11 @@ static void _NSBuildAvailableStringEncodings(void *unused)
     while (cfList != NULL && cfList[count] != kCFStringEncodingInvalidId)
         count++;
     NSStringEncoding *list = calloc(count + 1, sizeof(NSStringEncoding));
+    if (list == NULL)
+        return;
     NSUInteger used = 0;
     for (NSUInteger i = 0; i < count; i++) {
-        unsigned long encoding = CFStringConvertEncodingToNSStringEncoding(cfList[i]);
+        uint32_t encoding = (uint32_t)CFStringConvertEncodingToNSStringEncoding(cfList[i]);
         if (encoding == kCFStringEncodingInvalidId || encoding == 0)
             continue;
         BOOL seen = NO;
@@ -678,6 +680,8 @@ static void _NSBuildAvailableStringEncodings(void *unused)
 {
     static dispatch_once_t once;
     dispatch_once_f(&once, NULL, _NSBuildAvailableStringEncodings);
+    if (_NSAvailableStringEncodings == NULL)
+        [NSException raise:NSMallocException format:@"Unable to allocate available string encodings"];
     return _NSAvailableStringEncodings;
 }
 

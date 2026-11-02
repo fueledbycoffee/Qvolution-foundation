@@ -14,8 +14,12 @@ int main(void) {
         expect(list != NULL, "list is not NULL");
         NSUInteger count = 0;
         BOOL utf8 = NO, ascii = NO, latin1 = NO, unicode = NO, duplicate = NO, convertible = YES;
-        while (list != NULL && list[count] != 0 && count < 4096) {
+        BOOL utf16be = NO, utf16le = NO, utf32 = NO, utf32be = NO, utf32le = NO;
+        while (list != NULL && count < 4096 && list[count] != 0) {
             NSStringEncoding e = list[count];
+            utf16be |= e == NSUTF16BigEndianStringEncoding; utf16le |= e == NSUTF16LittleEndianStringEncoding;
+            utf32 |= e == NSUTF32StringEncoding; utf32be |= e == NSUTF32BigEndianStringEncoding;
+            utf32le |= e == NSUTF32LittleEndianStringEncoding;
             utf8 |= e == NSUTF8StringEncoding; ascii |= e == NSASCIIStringEncoding;
             latin1 |= e == NSISOLatin1StringEncoding; unicode |= e == NSUnicodeStringEncoding;
             for (NSUInteger j = 0; j < count; j++) duplicate |= list[j] == e;
@@ -25,6 +29,7 @@ int main(void) {
         }
         expect(count > 0 && count < 4096, "list is non-empty and zero-terminated");
         expect(utf8 && ascii && latin1 && unicode, "list holds UTF-8, ASCII, ISO Latin 1 and UTF-16");
+        expect(utf16be && utf16le && utf32 && utf32be && utf32le, "explicit-endian Unicode encodings use public constants");
         expect(!duplicate, "no encoding is listed twice");
         expect(convertible, "every listed encoding is available to CoreFoundation");
         expect([NSString availableStringEncodings] == list, "the list is built once");
