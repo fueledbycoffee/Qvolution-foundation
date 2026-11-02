@@ -7,6 +7,8 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+from runpy import run_path
+gate_outcome = run_path(str(Path(__file__).with_name('loader_diagnostics.py')))['gate_outcome']
 
 
 def infrastructure_ok(result):
@@ -57,9 +59,12 @@ def main():
                       and results['baseline']['returncode'] == 1
                       and results['candidate']['returncode'] == 0)
         strong = comparison and results['candidate-full-strong']['returncode'] == 0
-    outcome = 'gate_passed' if strong else ('partial' if comparison else 'failed')
+    diagnostics = {name: item['run']['loader_diagnostics'] for name, item in results.items() if 'run' in item}
+    dependency_missing = any(item['missing_images'] for item in diagnostics.values())
+    strong = strong and not dependency_missing
+    outcome = gate_outcome(comparison, strong, diagnostics.values())
     report = {'outcome': outcome, 'baseline_candidate_subset_passed': comparison,
-              'full_strong_gate_passed': strong, 'cases': results}
+              'full_strong_gate_passed': strong, 'loader_diagnostics': diagnostics, 'cases': results}
     (log / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(log / 'result.json')
     return 0 if strong else 1

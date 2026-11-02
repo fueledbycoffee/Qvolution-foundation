@@ -12,11 +12,13 @@ import subprocess
 p = argparse.ArgumentParser()
 p.add_argument('--toolchain', type=Path, required=True)
 p.add_argument('--out', type=Path, required=True)
+p.add_argument('--revision', help='project NSString.m from this committed revision')
 a = p.parse_args()
 a.out.mkdir(parents=True, exist_ok=False)
 root = Path(__file__).resolve().parents[2]
 cf = root.parent / 'corefoundation'
-source = (root / 'src/NSString.m').read_text()
+source = (subprocess.check_output(['git', '-C', str(root), 'show', a.revision + ':src/NSString.m'], text=True)
+          if a.revision else (root / 'src/NSString.m').read_text())
 def method(signature):
     first = source.index(signature)
     begin = source.index('{', first)
