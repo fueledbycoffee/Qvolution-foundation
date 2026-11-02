@@ -126,7 +126,7 @@ static const char *NSGetSizeAndAlignment(const char *t, NSUInteger *size, NSUInt
 
 /* Capture the factory's selected Method/Ivar. Execute that accessor below;
  * allocation, boxing and cache lifetime are intentionally test doubles. */
-@interface NSKeyValueAccessor : NSObject { @public Method selectedMethod; Ivar selectedIvar; Class proxyClass; }
+@interface NSKeyValueAccessor : NSObject { @public Method selectedMethod; Ivar selectedIvar; Class proxyClass; id methods; }
 - (id)initWithContainerClassID:(Class)c key:(id)key method:(Method)m;
 - (id)initWithContainerClassID:(Class)c key:(id)key containerIsa:(Class)isa ivar:(Ivar)i;
 - (id)initWithContainerClassID:(Class)c key:(id)key ivar:(Ivar)i;
@@ -138,7 +138,7 @@ static const char *NSGetSizeAndAlignment(const char *t, NSUInteger *size, NSUInt
 - (id)initWithContainerClassID:(Class)c key:(id)key containerIsa:(Class)isa ivar:(Ivar)i { selectedIvar = i; return self; }
 - (id)initWithContainerClassID:(Class)c key:(id)key ivar:(Ivar)i { selectedIvar = i; return self; }
 - (id)initWithContainerClassID:(Class)c key:(id)key containerIsa:(Class)isa { return self; }
-- (id)initWithContainerClassID:(Class)c key:(id)key methods:(id)m proxyClass:(Class)p { proxyClass = p; return self; }
+- (id)initWithContainerClassID:(Class)c key:(id)key methods:(id)m proxyClass:(Class)p { proxyClass = p; methods = m; return self; }
 @end
 #define SUBCLASS(N,B) @interface N : B @end @implementation N @end
 SUBCLASS(NSKeyValueGetter,NSKeyValueAccessor)

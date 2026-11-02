@@ -690,7 +690,7 @@ static BOOL _NSKeyValueProxyDeallocate(id <NSKeyValueProxyCaching>proxy)
 
 - (id)member:(id)object
 {
-    return ((id(*)(id, Method, id))method_invoke)(_container, _methods->count, object);
+    return ((id(*)(id, Method, id))method_invoke)(_container, _methods->member, object);
 }
 
 - (NSUInteger)count

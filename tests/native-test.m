@@ -100,6 +100,40 @@ static void retarget(void) {
     [cached setMethod:new];
     CHECK(cached->_extraArgument2 == new && cached->_implementation == method_getImplementation(old), "retarget Method extra preserves wrapper IMP");
 }
+/* NSKeyValueSet's primitive NSSet methods, compiled verbatim from
+ * NSKeyValueCollectionProxies.m. GCC libobjc has no method_invoke; this double
+ * forwards to the Method's IMP. Calling it through the production casts with
+ * zero or one object argument is sound on x86_64 SysV (register arguments). */
+@class NSEnumerator;
+#define method_invoke native_method_invoke
+static id native_method_invoke(id receiver, Method m, id argument) {
+    return ((id(*)(id,SEL,id))method_getImplementation(m))(receiver, method_getName(m), argument);
+}
+@interface NativeSetProxy : NSObject { @public id _container; id _key; NSKeyValueNonmutatingSetMethodSet *_methods; }
+@end
+@implementation NativeSetProxy
+#include "native-set-proxy.inc"
+@end
+#undef method_invoke
+@interface NativeSetContainer : NSObject { @public unsigned countCalls, memberCalls; }
+@end
+@implementation NativeSetContainer
+- (NSUInteger)countOfToken { ++countCalls; return 2; }
+- (id)enumeratorOfToken { return (id)0x77; }
+- (id)memberOfToken:(id)o { ++memberCalls; return o == (id)0x10 ? o : nil; }
+@end
+static void setproxy(void) {
+    NSKeyValueAccessor *a = getter([NativeSetContainer class], "token");
+    CHECK(a->proxyClass == [NSKeyValueSet class] && a->methods, "countOf/enumeratorOf/memberOf select set proxy");
+    if (!a->methods) return;
+    NativeSetContainer *c = [NativeSetContainer alloc];
+    NativeSetProxy *p = [NativeSetProxy alloc]; p->_container = c; p->_methods = a->methods;
+    CHECK([p count] == 2 && c->countCalls == 1, "set proxy count forwards countOf");
+    CHECK([p objectEnumerator] == (id)0x77, "set proxy enumerator forwards enumeratorOf");
+    CHECK([p member:(id)0x10] == (id)0x10, "set proxy member forwards memberOf");
+    CHECK([p member:(id)0x20] == nil, "set proxy member reports an absent object");
+    CHECK(c->memberCalls == 2 && c->countCalls == 1, "set proxy member never calls countOf");
+}
 #ifdef KVC_NATIVE_PRODUCTION_SIZE_PARSER
 static void encoding(void) {
     NSUInteger size = 99, alignment = 99;
@@ -122,6 +156,7 @@ int main(int argc, char **argv) {
     if (argc == 1 || !strcmp(argv[1],"search")) search();
     if (argc == 1 || !strcmp(argv[1],"boxing")) boxing();
     if (argc == 1 || !strcmp(argv[1],"retarget")) retarget();
+    if (argc == 1 || !strcmp(argv[1],"setproxy")) setproxy();
 #ifdef KVC_NATIVE_PRODUCTION_SIZE_PARSER
     if (argc == 1 || !strcmp(argv[1],"encoding")) encoding();
 #endif
