@@ -328,12 +328,7 @@ DEFINE_SET_WITH_METHOD2(Rect, CGRect, rectValue, NSRectToCGRect)
     }
     else
     {
-        if (*type == _C_STRUCT_B)
-            imp = (IMP)&_NSSetStructValueForKeyWithMethod;
-        else
-        {
-            TYPE_TO_IMP(_NSSet, ValueForKeyWithMethod);
-        }
+        TYPE_TO_IMP(_NSSet, ValueForKeyWithMethod);
         free(type);
         if (imp == NULL)
         {

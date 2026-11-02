@@ -226,6 +226,10 @@ static void boxing(void)
     pair.third = 256;
     [o setValue:[NSValue value:&pair withObjCType:@encode(KVCPair)] forKey:@"pair"];
     CHECK(o->_pair.third == 256, "struct ivar unboxing");
+    [o setValue:[NSValue valueWithRange:NSMakeRange(21, 34)] forKey:@"rangeMethod"];
+    CHECK(NSEqualRanges(o->_range, NSMakeRange(21, 34)), "known struct method unboxing");
+    [o setValue:[NSValue valueWithRange:NSMakeRange(55, 89)] forKey:@"range"];
+    CHECK(NSEqualRanges(o->_range, NSMakeRange(55, 89)), "known struct ivar unboxing");
     for (NSString *key in @[@"pair", @"pairMethod"]) {
         BOOL raised = NO;
         @try { [o setValue:[NSValue value:&tiny withObjCType:@encode(KVCTiny)] forKey:key]; }
