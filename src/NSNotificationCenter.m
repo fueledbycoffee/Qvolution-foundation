@@ -69,12 +69,13 @@
 {
     if (_queue != nil && _block != NULL)
     {
-        #warning TODO: Should not copy. If you post an NSNotification, you should get the same object on all listeners, regardless of thread
-        // make a copy for now, as recycling needs a bit of reworking
-        NSConcreteNotification *notifCopy = [NSConcreteNotification newTempNotificationWithName:notif.name object:notif.object userInfo:notif.userInfo];
+        // Deliver the posted notification itself. NSNotification objects are immutable
+        // (Apple, NSNotification), so the block may keep it or hand it to another thread;
+        // it stays alive until the operation has run.
+        NSNotification *delivered = [notif retain];
         [_queue addOperationWithBlock:^{
-            _block(notifCopy);
-            [notifCopy recycle];
+            _block(delivered);
+            [delivered release];
         }];
     }
     else if (_block != NULL)
@@ -162,9 +163,12 @@
 
 - (void)postNotificationName:(NSString *)aName object:(id)anObject userInfo:(NSDictionary *)aUserInfo
 {
-    NSConcreteNotification *notif = [NSConcreteNotification newTempNotificationWithName:aName object:anObject userInfo:aUserInfo];
+    // A fresh notification per post: observers may retain it (for example to forward it
+    // with performSelectorOnMainThread:withObject:waitUntilDone:NO), and NSNotification
+    // objects are immutable, so it must not be cleared or reused after posting.
+    NSNotification *notif = [[NSConcreteNotification alloc] initWithName:aName object:anObject userInfo:aUserInfo];
     [self postNotification:notif];
-    [notif recycle];
+    [notif release];
 }
 
 - (void)removeObserver:(id)observer

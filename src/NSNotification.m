@@ -127,30 +127,13 @@ static NSString * const NSUserInfoKey = @"NS.userinfo";
 
 @implementation NSConcreteNotification
 
-static OSSpinLock notificationPoolLock = OS_SPINLOCK_INIT;
-static NSMutableSet *notificationPool = nil;
-
+// Formerly a pool: recycle cleared name/object/userInfo and handed the same object to the
+// next post even while an observer still held it, so a retained notification changed or
+// emptied under its holder. NSNotification objects are immutable (Apple, NSNotification);
+// these two remain only as allocation helpers for internal callers.
 + (id)newTempNotificationWithName:(NSString *)name object:(id)anObject userInfo:(NSDictionary *)aUserInfo
 {
-    static dispatch_once_t once = 0L;
-    dispatch_once(&once, ^{
-        notificationPool = [[NSMutableSet alloc] init];
-    });
-    OSSpinLockLock(&notificationPoolLock);
-    NSConcreteNotification *notif = [[notificationPool anyObject] retain];
-    if (notif == nil) 
-    {
-        notif = [[NSConcreteNotification alloc] initWithName:name object:anObject userInfo:aUserInfo];
-    }
-    else
-    {
-        [notificationPool removeObject:notif];
-        notif->name = [name copy];
-        notif->object = [anObject retain];
-        notif->userInfo = [aUserInfo retain];
-    }
-    OSSpinLockUnlock(&notificationPoolLock);
-    return notif;
+    return [[NSConcreteNotification alloc] initWithName:name object:anObject userInfo:aUserInfo];
 }
 
 - (id)initWithName:(NSString *)aName object:(id)anObject userInfo:(NSDictionary *)aUserInfo
@@ -195,16 +178,7 @@ static NSMutableSet *notificationPool = nil;
 
 - (void)recycle
 {
-    OSSpinLockLock(&notificationPoolLock);
-    [notificationPool addObject:self];
-    [name release];
-    name = nil;
-    [object release];
-    object = nil;
-    [userInfo release];
-    userInfo = nil;
     [self release];
-    OSSpinLockUnlock(&notificationPoolLock);
 }
 
 - (NSString*)description
