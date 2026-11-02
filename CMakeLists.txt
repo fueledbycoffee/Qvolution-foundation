@@ -81,6 +81,9 @@ set(foundation_sources
 	src/_NSFileIO.m
 	src/NSFileManager.m
 	src/NSFilesystemItemRemoveOperation.m
+	src/NSExtensionMain.m
+	src/NSRelativeDateTimeFormatter.m
+	src/NSURLSessionWebSocketMessage.m
 	src/NSFormatter.m
 	src/NSFunctionExpression.m
 	src/NSGeometry.m

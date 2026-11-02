@@ -858,3 +858,6 @@ SINGLETON_RR()
 }
 
 @end
+
+// GUESS: key spelling follows the inline-presentation key family; runtime validation required.
+NSAttributedStringKey const NSPresentationIntentAttributeName = @"NSPresentationIntent";

@@ -186,3 +186,20 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 @end
 
 NS_ASSUME_NONNULL_END
+
+// GUESS: public value-object API; no WebSocket transport is claimed here.
+typedef NS_ENUM(NSInteger, NSURLSessionWebSocketMessageType) {
+    NSURLSessionWebSocketMessageTypeData = 0,
+    NSURLSessionWebSocketMessageTypeString = 1,
+};
+@interface NSURLSessionWebSocketMessage : NSObject {
+    NSURLSessionWebSocketMessageType _type;
+    NSData *_data;
+    NSString *_string;
+}
+- (instancetype)initWithData:(NSData *)data;
+- (instancetype)initWithString:(NSString *)string;
+@property (readonly) NSURLSessionWebSocketMessageType type;
+@property (nullable, readonly, copy) NSData *data;
+@property (nullable, readonly, copy) NSString *string;
+@end

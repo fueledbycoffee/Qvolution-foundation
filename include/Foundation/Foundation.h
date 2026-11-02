@@ -174,3 +174,5 @@
 #endif
 
 #include <AssertMacros.h>
+
+#import <Foundation/NSRelativeDateTimeFormatter.h>
