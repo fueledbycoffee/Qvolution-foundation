@@ -125,6 +125,7 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
             break; \
         case _C_CHR: \
             imp = (IMP)&PREFIX ## Char ## SUFFIX; \
+            break; \
         case _C_UCHR: \
             imp = (IMP)&PREFIX ## UnsignedChar ## SUFFIX; \
             break; \
@@ -199,6 +200,20 @@ static Ivar __NSKeyValueIvarForPattern(Class cls, NSString *key, char *keyStr, N
 #pragma mark -
 #pragma mark _NSSetXXXValueForKeyWithMethod static functions
 
+static void _NSKeyValueGetStructBytes(id value, const char *type, void *buffer)
+{
+    NSUInteger expectedSize = 0;
+    NSUInteger actualSize = 0;
+    NSUInteger alignment = 0;
+    if (!NSGetSizeAndAlignment(type, &expectedSize, &alignment) ||
+        !NSGetSizeAndAlignment([value objCType], &actualSize, &alignment) ||
+        expectedSize != actualSize)
+    {
+        [NSException raise:NSInvalidArgumentException format:@"incompatible structure value for KVC"];
+    }
+    [value getValue:buffer];
+}
+
 static void _NSSetObjectValueForKeyWithMethod(id obj, SEL cmd, id value, NSString *key, Method method)
 {
     // Not used.
@@ -210,33 +225,30 @@ static void _NSSetStructValueForKeyWithMethod(id obj, SEL cmd, id value, NSStrin
     if (value == nil)
     {
         [obj setNilValueForKey:key];
+        return;
     }
-    else
+    char *type = method_copyArgumentType(method, 2);
+    void *buffer = NULL;
+    @try
     {
-        char *type = method_copyArgumentType(method, 2);
-        NSUInteger size;
-        NSUInteger align;
-        if (NSGetSizeAndAlignment(type, &size, &align))
-        {
-            void *buffer = (void *)malloc(size);
-            if (buffer == NULL)
-            {
-                // fault?
-            }
-            [value getValue:buffer];
-            NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
-            
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setTarget:obj];
-            [inv setSelector:cmd];
-            [inv setArgument:buffer atIndex:2];
-            [inv invoke];
-            free(buffer);
-        }
-        else
-        {
-            // fault?
-        }
+        NSUInteger size = 0;
+        NSUInteger alignment = 0;
+        if (!NSGetSizeAndAlignment(type, &size, &alignment))
+            [NSException raise:NSInvalidArgumentException format:@"invalid KVC structure argument type"];
+        buffer = malloc(size);
+        if (buffer == NULL)
+            [NSException raise:NSMallocException format:@"could not allocate KVC structure argument"];
+        _NSKeyValueGetStructBytes(value, type, buffer);
+        NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
+        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+        [inv setTarget:obj];
+        [inv setSelector:cmd];
+        [inv setArgument:buffer atIndex:2];
+        [inv invoke];
+    }
+    @finally
+    {
+        free(buffer);
         free(type);
     }
 }
@@ -280,7 +292,7 @@ DEFINE_SET_WITH_METHOD(LongLong, long long, longLongValue)
 DEFINE_SET_WITH_METHOD(UnsignedLongLong, unsigned long long, unsignedLongLongValue)
 DEFINE_SET_WITH_METHOD(Float, float, floatValue)
 DEFINE_SET_WITH_METHOD(Double, double, doubleValue)
-DEFINE_SET_WITH_METHOD(Bool, BOOL, boolValue)
+DEFINE_SET_WITH_METHOD(Bool, _Bool, boolValue)
 DEFINE_SET_WITH_METHOD(Range, NSRange, rangeValue)
 DEFINE_SET_WITH_METHOD2(Point, CGPoint, pointValue, NSPointToCGPoint)
 DEFINE_SET_WITH_METHOD2(Size, CGSize, sizeValue, NSSizeToCGSize)
@@ -316,7 +328,12 @@ DEFINE_SET_WITH_METHOD2(Rect, CGRect, rectValue, NSRectToCGRect)
     }
     else
     {
-        TYPE_TO_IMP(_NSSet, ValueForKeyWithMethod);
+        if (*type == _C_STRUCT_B)
+            imp = (IMP)&_NSSetStructValueForKeyWithMethod;
+        else
+        {
+            TYPE_TO_IMP(_NSSet, ValueForKeyWithMethod);
+        }
         free(type);
         if (imp == NULL)
         {
@@ -367,17 +384,12 @@ static void _NSSetObjectValueForKeyInIvar(id obj, SEL cmd, id value, NSString *k
 
 static void _NSSetStructValueForKeyInIvar(id obj, SEL cmd, id value, NSString *key, Ivar ivar)
 {
-    NSUInteger size = 0;
-    NSUInteger align = 0;
-    if (NSGetSizeAndAlignment([value objCType], &size, &align))
+    if (value == nil)
     {
-        [value getValue:(void *)((char *)obj + ivar_getOffset(ivar))];
+        [obj setNilValueForKey:key];
+        return;
     }
-    else
-    {
-        // fault?
-        DEBUG_BREAK();
-    }
+    _NSKeyValueGetStructBytes(value, ivar_getTypeEncoding(ivar), (char *)obj + ivar_getOffset(ivar));
 }
 
 #define DEFINE_SET_IN_IVAR(INFIX, TYPE, GETTER) \
@@ -418,7 +430,7 @@ DEFINE_SET_IN_IVAR(LongLong, long long, longLongValue)
 DEFINE_SET_IN_IVAR(UnsignedLongLong, unsigned long long, unsignedLongLongValue)
 DEFINE_SET_IN_IVAR(Float, float, floatValue)
 DEFINE_SET_IN_IVAR(Double, double, doubleValue)
-DEFINE_SET_IN_IVAR(Bool, BOOL, boolValue)
+DEFINE_SET_IN_IVAR(Bool, _Bool, boolValue)
 DEFINE_SET_IN_IVAR(Range, NSRange, rangeValue)
 DEFINE_SET_IN_IVAR2(Point, CGPoint, pointValue, NSPointToCGPoint)
 DEFINE_SET_IN_IVAR2(Size, CGSize, sizeValue, NSSizeToCGSize)
@@ -517,35 +529,30 @@ static id _NSGetObjectValueWithMethod(id obj, SEL cmd, Method method)
 
 static id _NSGetStructValueWithMethod(id obj, SEL cmd, Method method)
 {
-    id val = nil;
     char *type = method_copyReturnType(method);
-    NSUInteger size;
-    NSUInteger align;
-    if (NSGetSizeAndAlignment(type, &size, &align))
+    void *buffer = NULL;
+    @try
     {
-        void *buffer = (void *)malloc(size);
+        NSUInteger size = 0;
+        NSUInteger alignment = 0;
+        if (!NSGetSizeAndAlignment(type, &size, &alignment))
+            [NSException raise:NSInvalidArgumentException format:@"invalid KVC structure result type"];
+        buffer = malloc(size);
         if (buffer == NULL)
-        {
-            // fault?
-        }
-        
+            [NSException raise:NSMallocException format:@"could not allocate KVC structure result"];
         NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(method)];
-        
         NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
         [inv setTarget:obj];
         [inv setSelector:cmd];
         [inv invoke];
         [inv getReturnValue:buffer];
-        val = [NSValue value:buffer withObjCType:type];
-        free(buffer);
+        return [NSValue value:buffer withObjCType:type];
     }
-    else
+    @finally
     {
-        // fault?
+        free(buffer);
+        free(type);
     }
-    free(type);
-    
-    return val;
 }
 
 #define DEFINE_GET_NUMBER_WITH_METHOD(INFIX, TYPE) \
@@ -554,22 +561,21 @@ static id _NSGet ## INFIX ##ValueWithMethod(id obj, SEL cmd, Method method) \
     return [NSNumber numberWith##INFIX:((TYPE(*)(id, Method))method_invoke)(obj, method)]; \
 }
 
-#if defined(__arm64__) || defined(__aarch64__)
-// ARM64 has no stret variant; struct returns use the same calling convention
+// A typed IMP call lets the compiler select register or indirect struct return.
 #define DEFINE_GET_VALUE_WITH_METHOD(INFIX, TYPE) \
 static id _NSGet ## INFIX ##ValueWithMethod(id obj, SEL cmd, Method method) \
 { \
-    return [NSValue valueWith##INFIX:((TYPE(*)(id, Method))method_invoke)(obj, method)]; \
+    TYPE value = ((TYPE(*)(id, SEL))method_getImplementation(method))(obj, method_getName(method)); \
+    return [NSValue valueWith##INFIX:value]; \
 }
-#else
-#define DEFINE_GET_VALUE_WITH_METHOD(INFIX, TYPE) \
-static id _NSGet ## INFIX ##ValueWithMethod(id obj, SEL cmd, Method method) \
-{ \
-    return [NSValue valueWith##INFIX:((TYPE(*)(id, Method))method_invoke_stret)(obj, method)]; \
-}
-#endif
 
-DEFINE_GET_NUMBER_WITH_METHOD(Char, char)
+static id _NSGetCharValueWithMethod(id obj, SEL cmd, Method method)
+{
+    signed char value = ((signed char(*)(id, Method))method_invoke)(obj, method);
+    if (value == 0 || value == 1)
+        return (id)(value ? kCFBooleanTrue : kCFBooleanFalse);
+    return [NSNumber numberWithChar:value];
+}
 DEFINE_GET_NUMBER_WITH_METHOD(UnsignedChar, unsigned char)
 DEFINE_GET_NUMBER_WITH_METHOD(Short, short)
 DEFINE_GET_NUMBER_WITH_METHOD(UnsignedShort, unsigned short)
@@ -581,7 +587,11 @@ DEFINE_GET_NUMBER_WITH_METHOD(LongLong, long long)
 DEFINE_GET_NUMBER_WITH_METHOD(UnsignedLongLong, unsigned long long)
 DEFINE_GET_NUMBER_WITH_METHOD(Float, float)
 DEFINE_GET_NUMBER_WITH_METHOD(Double, double)
-DEFINE_GET_NUMBER_WITH_METHOD(Bool, BOOL)
+static id _NSGetBoolValueWithMethod(id obj, SEL cmd, Method method)
+{
+    _Bool value = ((_Bool(*)(id, Method))method_invoke)(obj, method);
+    return (id)(value ? kCFBooleanTrue : kCFBooleanFalse);
+}
 DEFINE_GET_VALUE_WITH_METHOD(Range, NSRange)
 DEFINE_GET_VALUE_WITH_METHOD(Point, CGPoint)
 DEFINE_GET_VALUE_WITH_METHOD(Size, CGSize)
@@ -645,35 +655,14 @@ static id _NSGetObjectValueInIvar(id obj, SEL cmd, Ivar ivar)
 
 static id _NSGetStructValueInIvar(id obj, SEL cmd, Ivar ivar)
 {
-    id val = nil;
-    const char *type = ivar_getTypeEncoding(ivar);
-    NSUInteger size;
-    NSUInteger align;
-    if (NSGetSizeAndAlignment(type, &size, &align))
-    {
-        void *buffer = (void *)malloc(size);
-        if (buffer == NULL)
-        {
-            // fault?
-        }
-        
-        object_getInstanceVariable(obj, ivar_getName(ivar), (void **)buffer);
-        
-        val = [NSValue value:buffer withObjCType:type];
-        free(buffer);
-    }
-    else
-    {
-        // fault?
-    }
-    return val;
+    return [NSValue value:(char *)obj + ivar_getOffset(ivar) withObjCType:ivar_getTypeEncoding(ivar)];
 }
 
 #define DEFINE_GET_NUMBER_IN_IVAR(INFIX, TYPE) \
 static id _NSGet ## INFIX ##ValueInIvar(id obj, SEL cmd, Ivar ivar) \
 { \
     TYPE val; \
-    object_getInstanceVariable(obj, ivar_getName(ivar), (void **)&val); \
+    memcpy(&val, (char *)obj + ivar_getOffset(ivar), sizeof(val)); \
     return [NSNumber numberWith##INFIX:val]; \
 }
 
@@ -681,11 +670,18 @@ static id _NSGet ## INFIX ##ValueInIvar(id obj, SEL cmd, Ivar ivar) \
 static id _NSGet ## INFIX ##ValueInIvar(id obj, SEL cmd, Ivar ivar) \
 { \
     TYPE val; \
-    object_getInstanceVariable(obj, ivar_getName(ivar), (void**)&val); \
+    memcpy(&val, (char *)obj + ivar_getOffset(ivar), sizeof(val)); \
     return [NSValue valueWith##INFIX:val]; \
 }
 
-DEFINE_GET_NUMBER_IN_IVAR(Char, char)
+static id _NSGetCharValueInIvar(id obj, SEL cmd, Ivar ivar)
+{
+    signed char value;
+    memcpy(&value, (char *)obj + ivar_getOffset(ivar), sizeof(value));
+    if (value == 0 || value == 1)
+        return (id)(value ? kCFBooleanTrue : kCFBooleanFalse);
+    return [NSNumber numberWithChar:value];
+}
 DEFINE_GET_NUMBER_IN_IVAR(UnsignedChar, unsigned char)
 DEFINE_GET_NUMBER_IN_IVAR(Short, short)
 DEFINE_GET_NUMBER_IN_IVAR(UnsignedShort, unsigned short)
@@ -697,7 +693,12 @@ DEFINE_GET_NUMBER_IN_IVAR(LongLong, long long)
 DEFINE_GET_NUMBER_IN_IVAR(UnsignedLongLong, unsigned long long)
 DEFINE_GET_NUMBER_IN_IVAR(Float, float)
 DEFINE_GET_NUMBER_IN_IVAR(Double, double)
-DEFINE_GET_NUMBER_IN_IVAR(Bool, BOOL)
+static id _NSGetBoolValueInIvar(id obj, SEL cmd, Ivar ivar)
+{
+    _Bool value;
+    memcpy(&value, (char *)obj + ivar_getOffset(ivar), sizeof(value));
+    return (id)(value ? kCFBooleanTrue : kCFBooleanFalse);
+}
 DEFINE_GET_VALUE_IN_IVAR(Range, NSRange)
 DEFINE_GET_VALUE_IN_IVAR(Point, CGPoint)
 DEFINE_GET_VALUE_IN_IVAR(Size, CGSize)
