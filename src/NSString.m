@@ -646,28 +646,51 @@ SINGLETON_RR()
     return NSUTF8StringEncoding;
 }
 
-+ (const NSStringEncoding *)availableStringEncodings
+// Rung 3 (NSString reference): a zero-terminated list of the encodings that
+// string objects support here. Built once from CoreFoundation's available
+// encodings, each mapped to its NSStringEncoding (encodings without one are
+// skipped, duplicates dropped); CF's list is the authority for what converts.
+static NSStringEncoding *_NSAvailableStringEncodings;
+
+static void _NSBuildAvailableStringEncodings(void *unused)
 {
-    // Port of swift-corelibs-foundation NSString.availableStringEncodings.
-    static NSStringEncoding *encodings;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const CFStringEncoding *available = CFStringGetListOfAvailableEncodings();
-        NSUInteger count = 0;
-        while (available[count] != kCFStringEncodingInvalidId) count++;
-        encodings = calloc(count + 1, sizeof(NSStringEncoding));
-        if (encodings == NULL) [NSException raise:NSMallocException format:@"Cannot allocate string encoding list"];
-        for (NSUInteger i = 0; i < count; i++)
-            encodings[i] = CFStringConvertEncodingToNSStringEncoding(available[i]);
-    });
-    return encodings;
+    const CFStringEncoding *cfList = CFStringGetListOfAvailableEncodings();
+    NSUInteger count = 0;
+    while (cfList != NULL && cfList[count] != kCFStringEncodingInvalidId)
+        count++;
+    NSStringEncoding *list = calloc(count + 1, sizeof(NSStringEncoding));
+    NSUInteger used = 0;
+    for (NSUInteger i = 0; i < count; i++) {
+        unsigned long encoding = CFStringConvertEncodingToNSStringEncoding(cfList[i]);
+        if (encoding == kCFStringEncodingInvalidId || encoding == 0)
+            continue;
+        BOOL seen = NO;
+        for (NSUInteger j = 0; j < used && !seen; j++)
+            seen = list[j] == encoding;
+        if (!seen)
+            list[used++] = encoding;
+    }
+    list[used] = 0;
+    _NSAvailableStringEncodings = list;
 }
 
++ (const NSStringEncoding *)availableStringEncodings
+{
+    static dispatch_once_t once;
+    dispatch_once_f(&once, NULL, _NSBuildAvailableStringEncodings);
+    return _NSAvailableStringEncodings;
+}
+
+// Rung 3: a human-readable name for the encoding. CoreFoundation's encoding
+// names are used (GUESS rung 6: not localized beyond what CF provides); an
+// encoding CF does not know has no name, which is reported as nil.
 + (NSString *)localizedNameOfStringEncoding:(NSStringEncoding)encoding
 {
-    // Like the public corelibs implementation, use the CF encoding name.
-    CFStringRef name = CFStringGetNameOfEncoding(CFStringConvertNSStringEncodingToEncoding(encoding));
-    return name != NULL ? (NSString *)name : @"";
+    CFStringEncoding cfEncoding = CFStringConvertNSStringEncodingToEncoding(encoding);
+    if (cfEncoding == kCFStringEncodingInvalidId)
+        return nil;
+    CFStringRef name = CFStringGetNameOfEncoding(cfEncoding);
+    return name ? [[(NSString *)name copy] autorelease] : nil;
 }
 
 + (id)string
