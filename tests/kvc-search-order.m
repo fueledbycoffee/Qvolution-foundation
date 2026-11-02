@@ -134,11 +134,11 @@ static void settersAndUndefined(void)
     NSObject *plain = [[[NSObject alloc] init] autorelease];
     BOOL raised = NO;
     @try { [plain valueForKey:@"absent"]; }
-    @catch (NSException *e) { raised = [[e name] isEqual:NSUnknownKeyException]; }
+    @catch (NSException *e) { raised = [[e name] isEqual:NSUndefinedKeyException]; }
     CHECK(raised, "default undefined getter exception");
     raised = NO;
     @try { [plain setValue:@1 forKey:@"absent"]; }
-    @catch (NSException *e) { raised = [[e name] isEqual:NSUnknownKeyException]; }
+    @catch (NSException *e) { raised = [[e name] isEqual:NSUndefinedKeyException]; }
     CHECK(raised, "default undefined setter exception");
 }
 
@@ -272,6 +272,17 @@ static void boxing(void)
 - (void)removeTokenObject:(id)o { [backing removeObject:o]; }
 @end
 
+@interface KVCProxyIvars : NSObject { @public id _isToken; id token; } @end
+@implementation KVCProxyIvars
+- (void)dealloc { [_isToken release]; [token release]; [super dealloc]; }
+@end
+@interface KVCProxySetter : NSObject { @public id backing; unsigned writes; } @end
+@implementation KVCProxySetter
+- (id)token { return backing; }
+- (void)setToken:(id)value { ++writes; [value retain]; [backing release]; backing = value; }
+- (void)dealloc { [backing release]; [super dealloc]; }
+@end
+
 static void collections(void)
 {
     KVCArray *o = [[[KVCArray alloc] init] autorelease];
@@ -293,6 +304,25 @@ static void collections(void)
     CHECK([setProxy containsObject:@"c"], "set insertion forwarding");
     [mutableSet removeObject:@"a"];
     CHECK(![setProxy containsObject:@"a"], "set removal forwarding");
+    KVCProxyIvars *ivars = [[[KVCProxyIvars alloc] init] autorelease];
+    ivars->_isToken = [[NSMutableArray alloc] initWithObjects:@"a", nil];
+    ivars->token = [[NSMutableArray alloc] initWithObjects:@"untouched", nil];
+    [[ivars mutableArrayValueForKey:@"token"] addObject:@"b"];
+    SAME(ivars->_isToken, (@[@"a", @"b"]), "array proxy uses corrected ivar order");
+    SAME(ivars->token, (@[@"untouched"]), "array proxy preserves lower precedence ivar");
+    [ivars->_isToken release];
+    ivars->_isToken = [[NSMutableSet alloc] initWithObjects:@"a", nil];
+    [[ivars mutableSetValueForKey:@"token"] addObject:@"b"];
+    CHECK([ivars->_isToken containsObject:@"b"], "set proxy uses corrected ivar order");
+    SAME(ivars->token, (@[@"untouched"]), "set proxy preserves lower precedence ivar");
+    KVCProxySetter *slow = [[[KVCProxySetter alloc] init] autorelease];
+    slow->backing = [[NSArray alloc] initWithObjects:@"a", nil];
+    [[slow mutableArrayValueForKey:@"token"] addObject:@"b"];
+    SAME(slow->backing, (@[@"a", @"b"]), "array proxy setter fallback");
+    CHECK(slow->writes == 1, "array proxy invokes setter once");
+    [slow->backing release]; slow->backing = [[NSSet alloc] initWithObjects:@"a", nil];
+    [[slow mutableSetValueForKey:@"token"] addObject:@"b"];
+    CHECK([slow->backing containsObject:@"b"] && slow->writes == 2, "set proxy setter fallback");
 }
 
 @interface KVCObserver : NSObject { @public unsigned count; id old; id new; } @end
