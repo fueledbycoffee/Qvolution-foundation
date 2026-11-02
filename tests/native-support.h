@@ -168,3 +168,7 @@ static void CFSetAddValue(void *a, void *b) {}
 @end
 static Ivar __NSKeyValueIvarForPattern(Class, NSString *, char *, NSUInteger);
 static Method NSKeyValueMethodForPattern(Class, const char *, const char *);
+
+@interface NativeCachedSetter : NSObject { @public Method _method; void *_extraArgument2; IMP _implementation; }
+- (void)setMethod:(Method)method;
+@end

@@ -65,6 +65,9 @@ static void boxing(void) {
     o->_signedValue = -7; o->_guard = 0xa5; o->_integerValue = -345; o->_truth = 1;
     o->_pair = (Pair){2,4,8}; o->_tiny = (Tiny){17,29};
     Ivar ch = class_getInstanceVariable(c,"_signedValue"), truth = class_getInstanceVariable(c,"_truth"), pair = class_getInstanceVariable(c,"_pair");
+    const char *type = @encode(signed char); IMP imp = NULL;
+    TYPE_TO_IMP(_NSGet, ValueInIvar);
+    CHECK(((NSNumber *)((id(*)(id,SEL,Ivar))imp)(o,0,ch))->number == -7, "signed char dispatch preserves sign");
     CHECK(((NSNumber *)_NSGetCharValueInIvar(o,0,ch))->number == -7, "signed char read");
     CHECK(((NSNumber *)_NSGetIntValueInIvar(o,0,class_getInstanceVariable(c,"_integerValue")))->number == -345, "int read");
     CHECK(_NSGetBoolValueInIvar(o,0,truth) == kCFBooleanTrue, "B true singleton");
@@ -84,9 +87,24 @@ static void boxing(void) {
     CHECK(raised && o->_pair.third == 128, "mismatch rejected before mutation");
     CHECK(o->_guard == 0xa5, "neighbor scalar unchanged");
 }
+static void retarget(void) {
+    Method old = class_getInstanceMethod([NativePrivateSet class],@selector(_setToken:));
+    Method new = class_getInstanceMethod([NativePublicSet class],@selector(setToken:));
+    NativeCachedSetter *cached = [NativeCachedSetter alloc];
+    cached->_implementation = method_getImplementation(old);
+    [cached setMethod:new];
+    NativePublicSet *o = [NativePublicSet alloc];
+    ((void(*)(id,SEL,id))cached->_implementation)(o,method_getName(new),(id)100);
+    CHECK(o->token == (id)101, "retarget cached direct object IMP");
+    cached->_extraArgument2 = old; cached->_implementation = method_getImplementation(old);
+    [cached setMethod:new];
+    CHECK(cached->_extraArgument2 == new && cached->_implementation == method_getImplementation(old), "retarget Method extra preserves wrapper IMP");
+}
 int main(int argc, char **argv) {
+    setvbuf(stdout, NULL, _IONBF, 0);
     kCFBooleanTrue = [NSNumber numberWithInt:1]; kCFBooleanFalse = [NSNumber numberWithInt:0];
     if (argc == 1 || !strcmp(argv[1],"search")) search();
     if (argc == 1 || !strcmp(argv[1],"boxing")) boxing();
+    if (argc == 1 || !strcmp(argv[1],"retarget")) retarget();
     printf("native-kvc: %u failures\n",failures); return failures ? 1 : 0;
 }
