@@ -368,11 +368,15 @@ endif ()
 # matching runtime (Darwin, ObjectiveC, CoreFoundation, Dispatch and Combine).
 set(DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY "" CACHE FILEPATH
     "Source-built Swift Foundation overlay matching the selected x86_64 runtime")
+if (DARLING_SWIFT_SOURCE_RUNTIME AND TARGET_x86_64)
+    set(DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY
+        "${CMAKE_BINARY_DIR}/src/external/swift/source-runtime-x86_64/overlays/libswiftFoundation.dylib")
+endif ()
 if (TARGET_x86_64 AND DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY)
     if (DARLING_ENABLE_LEGACY_X86_SWIFT_FOUNDATION_OVERLAY)
         message(FATAL_ERROR "Select either the matching or legacy Foundation overlay")
     endif ()
-    if (NOT EXISTS "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
+    if (NOT DARLING_SWIFT_SOURCE_RUNTIME AND NOT EXISTS "${DARLING_MATCHING_X86_SWIFT_FOUNDATION_OVERLAY}")
         message(FATAL_ERROR "Matching Swift Foundation overlay does not exist")
     endif ()
     # use_ld64's install-name mappings must select the same image as the
