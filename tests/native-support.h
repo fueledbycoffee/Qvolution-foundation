@@ -72,6 +72,21 @@ NUMBERS(DEF)
 @end
 static id kCFBooleanTrue, kCFBooleanFalse;
 
+@interface NSException : NSObject
++ (void)raise:(id)name format:(id)format;
++ (id)exceptionWithName:(id)name reason:(id)reason userInfo:(id)info;
+@end
+@implementation NSException
++ (void)raise:(id)name format:(id)format { @throw [self alloc]; }
++ (id)exceptionWithName:(id)name reason:(id)reason userInfo:(id)info { return [self alloc]; }
+@end
+static id NSInvalidArgumentException;
+
+#ifdef KVC_NATIVE_PRODUCTION_SIZE_PARSER
+#include <assert.h>
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#include "native-size-parser.inc"
+#else
 static const char *NSGetSizeAndAlignment(const char *t, NSUInteger *size, NSUInteger *align) {
     if (!t) return NULL;
     char normalized[256]; unsigned j = 0;
@@ -93,6 +108,8 @@ static const char *NSGetSizeAndAlignment(const char *t, NSUInteger *size, NSUInt
     if (align) *align = 1;
     return original + strlen(original);
 }
+#endif
+
 @interface NSValue : NSObject { const char *type; unsigned char bytes[64]; }
 + (id)value:(const void *)v withObjCType:(const char *)t;
 - (void)getValue:(void *)buffer;
@@ -106,13 +123,6 @@ static const char *NSGetSizeAndAlignment(const char *t, NSUInteger *size, NSUInt
 - (void)getValue:(void *)buffer { NSUInteger n = 0; NSGetSizeAndAlignment(type, &n, NULL); memcpy(buffer, bytes, n); }
 - (const char *)objCType { return type; }
 @end
-@interface NSException : NSObject
-+ (void)raise:(id)name format:(id)format;
-@end
-@implementation NSException
-+ (void)raise:(id)name format:(id)format { @throw [self alloc]; }
-@end
-static id NSInvalidArgumentException;
 
 /* Capture the factory's selected Method/Ivar. Execute that accessor below;
  * allocation, boxing and cache lifetime are intentionally test doubles. */

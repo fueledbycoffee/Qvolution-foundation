@@ -100,11 +100,30 @@ static void retarget(void) {
     [cached setMethod:new];
     CHECK(cached->_extraArgument2 == new && cached->_implementation == method_getImplementation(old), "retarget Method extra preserves wrapper IMP");
 }
+#ifdef KVC_NATIVE_PRODUCTION_SIZE_PARSER
+static void encoding(void) {
+    NSUInteger size = 99, alignment = 99;
+    const char *empty = "";
+    CHECK(NSGetSizeAndAlignment(empty, &size, &alignment) == empty && size == 0 && alignment == 0, "empty encoding leaves cursor and zero sizes");
+    const char *types = "ic";
+    CHECK(NSGetSizeAndAlignment(types, &size, &alignment) == types + 1 && size == sizeof(int) && alignment == __alignof(int), "one type consumed");
+    BOOL raised = NO;
+    @try { NSGetSizeAndAlignment("?", &size, &alignment); }
+    @catch(id exception) { raised = YES; }
+    CHECK(raised, "unsupported nonnull encoding raises without abort");
+    const char *pairType = @encode(Pair);
+    CHECK(*NSGetSizeAndAlignment(pairType, &size, &alignment) == 0 && size == sizeof(Pair) && alignment == __alignof(Pair), "production struct layout");
+    CHECK(NSGetSizeAndAlignment(types, NULL, NULL) == types + 1, "optional output pointers");
+}
+#endif
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     kCFBooleanTrue = [NSNumber numberWithInt:1]; kCFBooleanFalse = [NSNumber numberWithInt:0];
     if (argc == 1 || !strcmp(argv[1],"search")) search();
     if (argc == 1 || !strcmp(argv[1],"boxing")) boxing();
     if (argc == 1 || !strcmp(argv[1],"retarget")) retarget();
+#ifdef KVC_NATIVE_PRODUCTION_SIZE_PARSER
+    if (argc == 1 || !strcmp(argv[1],"encoding")) encoding();
+#endif
     printf("native-kvc: %u failures\n",failures); return failures ? 1 : 0;
 }
