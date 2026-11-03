@@ -43,6 +43,7 @@ __attribute__((objc_root_class)) @interface NSObject { @public Class isa; NSUInt
 - (id)autorelease { return self; }
 - (void)release { --retains; }
 - (BOOL)isNSString__ { return NO; }
+- (BOOL)isNSArray__ { return NO; }
 - (BOOL)isNSNumber__ { return NO; }
 @end
 /* A constant string uses the compiler's legacy constant-string layout. */
@@ -83,6 +84,7 @@ static NSUInteger decode(const char *s, NSUInteger n, unichar *u) {
 @implementation NSArray
 + (id)arrayWithObjects:(const id *)a count:(NSUInteger)n { NSArray *o=[self alloc];for(NSUInteger i=0;i<n;i++)[o addObject:a[i]];return o; }
 - (id)initWithArray:(NSArray *)a { for(NSUInteger i=0;i<[a count];i++)[self addObject:[a objectAtIndex:i]];return self; }
+- (BOOL)isNSArray__ { return YES; }
 - (NSUInteger)count { return count; }
 - (id)objectAtIndex:(NSUInteger)i { assert(i<count);return items[i]; }
 - (id)lastObject { return count?items[count-1]:nil; }
@@ -105,7 +107,7 @@ static NSUInteger decode(const char *s, NSUInteger n, unichar *u) {
 + (id)initialize {
  if(self==[NSString class]) {
   Class c=objc_getClass("NativeConstantString");
-  Class parents[]={objc_getClass("NSObject"),self};
+  Class parents[]={self,objc_getClass("NSObject")};
   for(int i=0;i<2;i++){unsigned count=0;Method *methods=class_copyMethodList(parents[i],&count);
    for(unsigned j=0;j<count;j++)class_addMethod(c,method_getName(methods[j]),method_getImplementation(methods[j]),method_getTypeEncoding(methods[j]));free(methods);}
  }return self;
