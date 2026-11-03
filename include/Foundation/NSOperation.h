@@ -36,6 +36,7 @@ FOUNDATION_EXPORT NSString * const NSInvocationOperationCancelledException;
 - (BOOL)isExecuting;
 - (BOOL)isFinished;
 - (BOOL)isConcurrent;
+@property (readonly, getter=isAsynchronous) BOOL asynchronous;
 @property (readonly, getter=isReady) BOOL ready;
 - (void)addDependency:(NSOperation *)op;
 - (void)removeDependency:(NSOperation *)op;

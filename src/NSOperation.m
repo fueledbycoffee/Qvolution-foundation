@@ -583,6 +583,11 @@ static char NSOperationNameKey;
     return NO;
 }
 
+- (BOOL)isAsynchronous
+{
+    return NO;
+}
+
 /** depedencies */
 
 - (void)addDependency:(NSOperation *)operation
