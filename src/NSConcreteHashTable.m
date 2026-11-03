@@ -852,13 +852,6 @@ const NSHashTableCallBacks NSOwnedObjectIdentityHashCallBacks =
       GSIMapAddKey(t, (GSIMapKey)anObject);
       version++;
     }
-  else if (n->key.obj != anObject)
-    {
-      GSI_MAP_RELEASE_KEY(t, n->key);
-      n->key = (GSIMapKey)anObject;
-      GSI_MAP_RETAIN_KEY(t, n->key);
-      version++;
-    }
 }
 
 - (NSArray*) allObjects
