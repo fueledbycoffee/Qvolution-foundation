@@ -48,6 +48,21 @@ int main(void) {
             assert([[calendar startOfDayForDate:d] timeIntervalSince1970] == starts[i]);
             assert([[calendar dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:d options:0] timeIntervalSince1970] == months[i]);
         }
+        [calendar setTimeZone:[NSTimeZone timeZoneWithName:@"America/Havana"]];
+        assert([[calendar startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:1446397200]] timeIntervalSince1970] == 1446350400);
+        [calendar setTimeZone:[NSTimeZone timeZoneWithName:@"America/Sao_Paulo"]];
+        assert([[calendar startOfDayForDate:[NSDate dateWithTimeIntervalSince1970:1541340000]] timeIntervalSince1970] == 1541300400);
+        [calendar setTimeZone:[NSTimeZone timeZoneWithName:@"America/New_York"]];
+        double dstInputs[] = {1615654800,1636214400}; // Noon before spring/fall transitions.
+        double dstLengths[] = {23*3600,25*3600};
+        for (int i = 0; i < 2; i++) {
+            NSDate *d = [NSDate dateWithTimeIntervalSince1970:dstInputs[i]];
+            NSDate *next = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:d options:0];
+            assert([next timeIntervalSinceDate:d] == dstLengths[i]);
+            assert([calendar component:NSCalendarUnitHour fromDate:next] == 12);
+        }
+        [calendar setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+        assert([[calendar dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:[NSDate dateWithTimeIntervalSince1970:1612094400] options:0] timeIntervalSince1970] == 1614513600);
         NSDateComponents *parts = [[NSDateComponents alloc] init];
         assert(![parts isValidDate]);
         NSCalendarUnit units[] = {NSCalendarUnitEra,NSCalendarUnitYear,NSCalendarUnitMonth,NSCalendarUnitDay,
@@ -67,6 +82,19 @@ int main(void) {
             assert([parts isValidDate] == dates[i][3]);
         }
         [parts setYear:2020]; [parts setMonth:2]; [parts setDay:29];
+        [parts setNanosecond:INT_MAX];
+        assert([parts valueForComponent:NSCalendarUnitNanosecond] == INT_MAX && ![parts isValidDate]);
+        [parts setValue:NSDateComponentUndefined forComponent:NSCalendarUnitDay];
+        assert([parts day] == NSDateComponentUndefined);
+        [parts setDay:NSDateComponentUndefined];
+        assert([parts valueForComponent:NSCalendarUnitDay] == NSDateComponentUndefined);
+        if (sizeof(NSInteger) > sizeof(int)) {
+            [parts setDay:INT_MAX]; assert([parts valueForComponent:NSCalendarUnitDay] == INT_MAX);
+            [parts setValue:INT_MAX forComponent:NSCalendarUnitDay]; assert([parts day] == INT_MAX);
+            [parts setValue:(NSInteger)INT_MAX + 1 forComponent:NSCalendarUnitDay];
+            assert([parts day] == (NSInteger)INT_MAX + 1 && ![parts isValidDate]);
+        }
+        [parts setDay:29];
         [parts setNanosecond:999999999]; assert([parts isValidDate] && [parts nanosecond] == 999999999);
         [parts setNanosecond:1000000000]; assert(![parts isValidDate]);
         [parts setNanosecond:0]; [parts setHour:24]; assert(![parts isValidDate]);

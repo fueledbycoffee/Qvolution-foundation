@@ -13,7 +13,7 @@ typedef NSUInteger NSCalendarUnit;
 /*UNITS*/
 __attribute__((objc_root_class))
 @interface NSObject { Class isa; }
-+ (id)alloc; - (id)init; - (id)autorelease; - (void)release; - (id)copy;
++ (id)alloc; - (id)init; - (id)autorelease; - (void)release; - (id)copy; - (id)retain;
 @end
 @implementation NSObject
 + (id)alloc { return class_createInstance(self,0); }
@@ -21,6 +21,7 @@ __attribute__((objc_root_class))
 - (id)autorelease { return self; }
 - (void)release {}
 - (id)copy { return self; }
+- (id)retain { return self; }
 @end
 @interface NSString : NSObject @end
 @implementation NSString @end
@@ -38,7 +39,9 @@ static id NSInvalidArgumentException;
 + (id)at:(double)t { NSDate *d=[self alloc];d->seconds=t;return d; }
 @end
 @class NSCalendar;
-@interface NSDateComponents : NSObject { @public NSInteger values[14]; NSCalendar *cal; id zone; }
+#define NSTimeZone NSObject
+/*STORAGE*/
+@interface NSDateComponents : NSObject
 /*PROPS*/
 - (NSCalendar *)calendar; - (void)setCalendar:(NSCalendar *)c;
 - (id)timeZone; - (void)setTimeZone:(id)z;
@@ -47,10 +50,10 @@ static id NSInvalidArgumentException;
 - (BOOL)isValidDate; - (BOOL)isValidDateInCalendar:(NSCalendar *)c;
 @end
 @implementation NSDateComponents
-- (id)init { for(int i=0;i<14;i++)values[i]=INT_MAX;return self; }
++ (id)alloc { return class_createInstance(self,sizeof(NSDateComponentParts)); }
+/*INIT*/
 /*PROPS_IMPL*/
-- (NSCalendar *)calendar { return cal; } - (void)setCalendar:(NSCalendar *)c { cal=c; }
-- (id)timeZone { return zone; } - (void)setTimeZone:(id)z { zone=z; }
+
 @end
 @interface NSCalendar : NSObject { @public UCalendar *icu; id zone; BOOL fail; NSUInteger lastOptions; }
 - (void)setTimeZone:(id)z;
@@ -74,17 +77,17 @@ static const UCalendarDateFields fields[]={UCAL_ERA,UCAL_YEAR,UCAL_MONTH,UCAL_DA
 }
 - (NSDate *)dateByAddingComponents:(NSDateComponents *)c toDate:(NSDate *)date options:(NSUInteger)opts {
  lastOptions=opts;if(fail||!date)return nil;UErrorCode e=U_ZERO_ERROR;ucal_setMillis(icu,date->seconds*1000,&e);
- for(int i=0;i<14;i++)if(c->values[i]!=INT_MAX){if(opts&1)ucal_roll(icu,fields[i],c->values[i],&e);else ucal_add(icu,fields[i],c->values[i],&e);}
+ for(int i=0;i<14;i++)if([c valueForComponent:1UL<<i]!=NSDateComponentUndefined){if(opts&1)ucal_roll(icu,fields[i],[c valueForComponent:1UL<<i],&e);else ucal_add(icu,fields[i],[c valueForComponent:1UL<<i],&e);}
  return [NSDate at:ucal_getMillis(icu,&e)/1000];
 }
 - (NSDate *)dateFromComponents:(NSDateComponents *)c {
  if(fail)return nil;ucal_clear(icu);ucal_setDateTime(icu,1,0,1,0,0,0,&(UErrorCode){U_ZERO_ERROR});UErrorCode e=U_ZERO_ERROR;
- for(int i=0;i<14;i++)if(c->values[i]!=INT_MAX)ucal_set(icu,fields[i],c->values[i]-(i==2?1:0));
+ for(int i=0;i<14;i++)if([c valueForComponent:1UL<<i]!=NSDateComponentUndefined)ucal_set(icu,fields[i],[c valueForComponent:1UL<<i]-(i==2?1:0));
  return [NSDate at:ucal_getMillis(icu,&e)/1000];
 }
 - (NSDateComponents *)components:(NSUInteger)flags fromDate:(NSDate *)date {
  UErrorCode e=U_ZERO_ERROR;ucal_setMillis(icu,date->seconds*1000,&e);NSDateComponents *c=[[NSDateComponents alloc]init];
- for(int i=0;i<14;i++)if(flags&(1UL<<i))c->values[i]=ucal_get(icu,fields[i],&e)+(i==2?1:0);return c;
+ for(int i=0;i<14;i++)if(flags&(1UL<<i))[c setValue:ucal_get(icu,fields[i],&e)+(i==2?1:0) forComponent:1UL<<i];return c;
 }
 @end
 @implementation NSCalendar (Production)
@@ -137,10 +140,16 @@ int main(int argc,char **argv) {
  } else {
   assert(class_getInstanceMethod(objc_getClass("NSDateComponents"),sel_registerName("isValidDate")));
   NSCalendar *cal=[[NSCalendar alloc]init];NSDateComponents *c=[[NSDateComponents alloc]init];
-  for(int i=0;i<14;i++){assert([c valueForComponent:1UL<<i]==NSDateComponentUndefined);[c setValue:2 forComponent:1UL<<i];assert([c valueForComponent:1UL<<i]==2);[c setValue:NSDateComponentUndefined forComponent:1UL<<i];assert(c->values[i]==INT_MAX);}
+  for(int i=0;i<14;i++){assert([c valueForComponent:1UL<<i]==NSDateComponentUndefined);[c setValue:2 forComponent:1UL<<i];assert([c valueForComponent:1UL<<i]==2);[c setValue:NSDateComponentUndefined forComponent:1UL<<i];assert([c valueForComponent:1UL<<i]==NSDateComponentUndefined);}
   assert(![c isValidDate]);[c setCalendar:cal];
   int cases[][4]={{2000,2,29,1},{1900,2,29,0},{2020,2,30,0},{2021,13,1,0},{2021,0,1,0},{2021,1,-1,0},{2020,2,29,1}};
   for(int i=0;i<7;i++){[c setYear:cases[i][0]];[c setMonth:cases[i][1]];[c setDay:cases[i][2]];assert([c isValidDate]==cases[i][3]);}
+  [c setNanosecond:INT_MAX];assert([c valueForComponent:NSCalendarUnitNanosecond]==INT_MAX);assert(![c isValidDate]);
+  [c setValue:NSDateComponentUndefined forComponent:NSCalendarUnitDay];assert([c day]==NSDateComponentUndefined);
+  [c setDay:NSDateComponentUndefined];assert([c valueForComponent:NSCalendarUnitDay]==NSDateComponentUndefined);
+  [c setDay:INT_MAX];assert([c valueForComponent:NSCalendarUnitDay]==INT_MAX);
+  [c setValue:INT_MAX forComponent:NSCalendarUnitDay];assert([c day]==INT_MAX);
+  [c setDay:29];
   [c setNanosecond:999999999];assert([c isValidDate]&&[c nanosecond]==999999999);
   [c setNanosecond:1000000000];assert(![c isValidDate]);[c setNanosecond:-1];assert(![c isValidDate]);[c setNanosecond:0];
   [c setHour:24];assert(![c isValidDate]);[c setHour:0];[c setTimeZone:[NSObject alloc]];assert([c isValidDate]&&!cal->zone);

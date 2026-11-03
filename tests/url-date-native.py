@@ -5,10 +5,10 @@ nil and rejection; the unchanged qv-diff program checks the real CF URL backend.
 Run through qv-slot build. --before requires each missing-method group to fail.
 """
 import argparse, pathlib, subprocess, json
-p=argparse.ArgumentParser();p.add_argument('--before',action='store_true');p.add_argument('--group',choices=['url','calendar','components','all'],default='all');a=p.parse_args()
-root=pathlib.Path(__file__).resolve().parents[1];out=root.parent/'native'/('before' if a.before else 'after');out.mkdir(parents=True,exist_ok=True)
+p=argparse.ArgumentParser();p.add_argument('--review-before',action='store_true');p.add_argument('--before',action='store_true');p.add_argument('--group',choices=['url','calendar','components','all'],default='all');a=p.parse_args()
+root=pathlib.Path(__file__).resolve().parents[1];out=root.parent/'native'/('review-before' if a.review_before else 'before' if a.before else 'after');out.mkdir(parents=True,exist_ok=True)
 def source(name):
- return subprocess.check_output(['git','-C',str(root),'show','a2400ec:'+name],text=True) if a.before else (root/name).read_text()
+ return subprocess.check_output(['git','-C',str(root),'show',('a2400ec' if a.before else '4f37992')+':'+name],text=True) if (a.before or a.review_before) else (root/name).read_text()
 def method(s,start):
  if start not in s:return ''
  b=s.index(start);i=s.index('{',b);depth=1;j=i+1
@@ -22,18 +22,22 @@ fields=['era','year','month','day','hour','minute','second','weekday','weekdayOr
 names=[n[0].upper()+n[1:] for n in fields]
 units='\n'.join(f'#define NSCalendarUnit{n} (1UL << {i})' for i,n in enumerate(names))
 props='\n'.join(f'- (NSInteger){n}; - (void)set{n[0].upper()+n[1:]}:(NSInteger)v;' for n in fields)
-impl='\n'.join(f'- (NSInteger){n} {{ return values[{i}]; }} - (void)set{n[0].upper()+n[1:]}:(NSInteger)v {{ values[{i}]=v; }}' for i,n in enumerate(fields))
+cf=root.parent/'corefoundation'
+storage=subprocess.check_output(['git','-C',str(cf),'show','a4571cc:NSDateComponents.m'],text=True) if (a.before or a.review_before) else (cf/'NSDateComponents.m').read_text()
+struct=storage[storage.index('typedef struct {'):storage.index('} NSDateComponentParts;')+len('} NSDateComponentParts;')]
+impl='\n'.join(method(storage,sig) for n in fields+['calendar','timeZone'] for sig in ['- (NSInteger)'+n+'\n' if n in fields else ('- (NSCalendar *)calendar' if n=='calendar' else '- (NSTimeZone *)timeZone'), '- (void)set'+n[0].upper()+n[1:]+':'])
+init=method(storage,'- (id)init')
 methods='\n'.join(method(cal,s) for s in ['- (NSDate *)startOfDayForDate:', '- (NSDate *)dateByAddingUnit:'])
 comp=cal.split('@implementation NSDateComponents (NSCalendarComponents)',1)[1].rsplit('@end',1)[0] if '@implementation NSDateComponents (NSCalendarComponents)' in cal else ''
 urlmethods='\n'.join(method(url,s) for s in ['- (NSString *)percentEncodedPath','- (void)setPercentEncodedPath:', '- (NSString *)query','- (void)setQuery:', '- (NSString *)fragment','- (void)setFragment:', '- (NSString *)string'])
 s=(root/'tests/url-date-native.m').read_text()
-for k,v in {'UNITS':units,'PROPS':props,'PROPS_IMPL':impl,'CAL_METHODS':methods,'COMP_METHODS':comp,'URL_METHODS':urlmethods}.items():s=s.replace('/*'+k+'*/',v)
+for k,v in {'UNITS':units,'PROPS':props,'PROPS_IMPL':impl,'STORAGE':struct,'INIT':init,'CAL_METHODS':methods,'COMP_METHODS':comp,'URL_METHODS':urlmethods}.items():s=s.replace('/*'+k+'*/',v)
 (out/'fixture.m').write_text(s)
 inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip()
 cmd=['clang','-g','-O1','-fobjc-runtime=gcc','-fobjc-exceptions','-fexceptions','-I'+inc,'-Wno-incomplete-implementation','-Wno-objc-method-access',str(out/'fixture.m'),'-lobjc','-licui18n','-licuuc','-o',str(out/'fixture')]
 r=subprocess.run(cmd,capture_output=True,text=True);(out/'build.log').write_text(r.stdout+r.stderr);assert r.returncode==0,(r.stdout+r.stderr)[-5000:]
 for group in (['url','calendar','components'] if a.group=='all' else [a.group]):
  r=subprocess.run([str(out/'fixture'),group],capture_output=True,text=True);(out/(group+'.log')).write_text(r.stdout+r.stderr)
- print(('before' if a.before else 'after'),group,'exit',r.returncode,r.stdout.strip(),flush=True)
- assert (r.returncode!=0) if a.before else (r.returncode==0)
+ print(('review-before' if a.review_before else 'before' if a.before else 'after'),group,'exit',r.returncode,r.stdout.strip(),flush=True)
+ assert (r.returncode!=0) if (a.before or (a.review_before and group=='components')) else (r.returncode==0)
 print('PASS: '+('baseline misses all three method groups' if a.before else 'production methods pass native regression'))
