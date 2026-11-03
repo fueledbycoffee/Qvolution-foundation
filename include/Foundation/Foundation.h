@@ -47,6 +47,8 @@
 #import <Foundation/NSObject.h>
 #import <Foundation/NSOperation.h>
 #import <Foundation/NSOrderedSet.h>
+#import <Foundation/NSOrderedCollectionChange.h>
+#import <Foundation/NSOrderedCollectionDifference.h>
 #import <Foundation/NSOrthography.h>
 #import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSPointerArray.h>

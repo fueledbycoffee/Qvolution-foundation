@@ -138,6 +138,7 @@ set(foundation_sources
 	src/NSObjectInternal.m
 	src/NSObject+NSComparisonMethods.m
 	src/NSObject+NSScriptClassDescription.m
+	src/NSOrderedCollectionDifference.m
 	src/NSOperation.m
 	src/NSOrthographyCheckingResult.m
 	src/NSOrthography.m
@@ -289,6 +290,8 @@ set(foundation_sources
 	src/NSDeprecatedKeyValueCoding.m
 	src/NSCFType.m
 )
+
+set_source_files_properties(src/NSOrderedCollectionDifference.m PROPERTIES COMPILE_FLAGS "-fblocks")
 
 # Includes ObjC headers -> must be compiled as ObjC
 set_source_files_properties(src/NSPredicateParser.tab.c PROPERTIES COMPILE_FLAGS "-x objective-c -fblocks")

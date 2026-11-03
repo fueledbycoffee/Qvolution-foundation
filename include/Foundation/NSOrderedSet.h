@@ -2,6 +2,7 @@
 #import <Foundation/NSRange.h>
 #import <Foundation/NSEnumerator.h>
 #import <Foundation/NSArray.h>
+#import <Foundation/NSOrderedCollectionDifference.h>
 
 @class NSArray, NSIndexSet, NSLocale, NSSet, NSString;
 
@@ -66,6 +67,14 @@
 - (NSString *)description;
 - (NSString *)descriptionWithLocale:(NSLocale *)locale;
 - (NSString *)descriptionWithLocale:(NSLocale *)locale indent:(NSUInteger)level;
+
+@end
+
+@interface NSOrderedSet (NSOrderedCollectionDifference)
+- (NSOrderedCollectionDifference *)differenceFromOrderedSet:(NSOrderedSet *)other;
+- (NSOrderedCollectionDifference *)differenceFromOrderedSet:(NSOrderedSet *)other withOptions:(NSOrderedCollectionDifferenceCalculationOptions)options;
+- (NSOrderedCollectionDifference *)differenceFromOrderedSet:(NSOrderedSet *)other withOptions:(NSOrderedCollectionDifferenceCalculationOptions)options usingEquivalenceTest:(BOOL (^)(id obj1, id obj2))block;
+- (NSOrderedSet *)orderedSetByApplyingDifference:(NSOrderedCollectionDifference *)difference;
 
 @end
 
