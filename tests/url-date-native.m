@@ -125,8 +125,7 @@ int main(int argc,char **argv) {
   [c setPercentEncodedPath:pathToken];assert(lastValue==pathToken);[c setQuery:queryToken];assert(lastValue==queryToken);[c setFragment:nil];assert(!lastValue);
   queryToken=nil;fragmentToken=nil;stringToken=nil;assert(![c query]&&![c fragment]&&![c string]);
   accept=NO;BOOL raised=NO;@try{[c setPercentEncodedPath:pathToken];}@catch(id e){raised=YES;}assert(raised);
-  raised=NO;@try{[c setQuery:nil];}@catch(id e){raised=YES;}assert(raised);
-  raised=NO;@try{[c setFragment:nil];}@catch(id e){raised=YES;}assert(raised);
+  accept=YES;[c setQuery:nil];assert(!lastValue);[c setFragment:nil];assert(!lastValue);
  } else if(!strcmp(argv[1],"calendar")) {
   assert(class_getInstanceMethod(objc_getClass("NSCalendar"),sel_registerName("startOfDayForDate:")));
   NSCalendar *c=[[NSCalendar alloc]init];
@@ -136,6 +135,11 @@ int main(int argc,char **argv) {
   for(int i=0;i<7;i++){assert([c startOfDayForDate:[NSDate at:in[i]]]->seconds==day[i]);assert([c dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:[NSDate at:in[i]] options:0]->seconds==month[i]);}
   assert([c dateByAddingUnit:NSCalendarUnitMonth value:-1 toDate:[NSDate at:0] options:0]->seconds==-2678400);
   [c dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:[NSDate at:0] options:1];assert(c->lastOptions==1);
+  assert([c dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:[NSDate at:1612094400] options:0]->seconds==1614513600);
+  UChar ny[]={'A','m','e','r','i','c','a','/','N','e','w','_','Y','o','r','k',0};UErrorCode error=U_ZERO_ERROR;
+  ucal_setTimeZone(c->icu,ny,16,&error);assert(U_SUCCESS(error));
+  double dst[]={1615654800,1636214400},lengths[]={23*3600,25*3600};
+  for(int i=0;i<2;i++)assert([c dateByAddingUnit:NSCalendarUnitDay value:1 toDate:[NSDate at:dst[i]] options:0]->seconds-dst[i]==lengths[i]);
   c->fail=YES;assert(![c startOfDayForDate:[NSDate at:0]]);assert(![c dateByAddingUnit:NSCalendarUnitMonth value:1 toDate:[NSDate at:0] options:0]);
  } else {
   assert(class_getInstanceMethod(objc_getClass("NSDateComponents"),sel_registerName("isValidDate")));
