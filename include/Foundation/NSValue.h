@@ -5,6 +5,7 @@
 @interface NSValue : NSObject <NSCopying, NSSecureCoding>
 
 - (void)getValue:(void *)value;
+- (void)getValue:(void *)value size:(NSUInteger)size;
 - (const char *)objCType NS_RETURNS_INNER_POINTER;
 
 @end

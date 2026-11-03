@@ -55,6 +55,15 @@ static NSValue *_NSNewValue(void *value, const char *type);
     NSRequestConcreteImplementation();
 }
 
+- (void)getValue:(void *)value size:(NSUInteger)size
+{
+    NSUInteger required = 0;
+    NSGetSizeAndAlignment([self objCType], &required, NULL);
+    if (size != required || (required && !value))
+        [NSException raise:NSInvalidArgumentException format:@"buffer size does not match value type"];
+    [self getValue:value];
+}
+
 - (const char *)objCType
 {
     NSRequestConcreteImplementation();
