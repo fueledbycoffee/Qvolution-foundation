@@ -256,7 +256,8 @@ static NSAffineTransformStruct identityTransform = {
   det = A * D - B * C;
   if (det == 0)
     {
-      NSLog (@"error: determinant of matrix is 0!");
+      [NSException raise: NSGenericException
+                  format: @"Cannot invert a singular affine transform"];
       return;
     }
 
