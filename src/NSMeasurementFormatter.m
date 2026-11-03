@@ -10,6 +10,10 @@
 #include <math.h>
 #include <stdlib.h>
 
+@interface NSNumberFormatter (NSMeasurementFormatting)
+- (const UNumberFormat *)_measurementNumberFormat;
+@end
+
 static const char *unitIdentifier(NSUnit *unit)
 {
     if (![unit isKindOfClass:[NSDimension class]]) return NULL;
@@ -111,19 +115,23 @@ static const char *unitIdentifier(NSUnit *unit)
         if (unitOnly) return [unit symbol];
         return _NSUnitFormatterJoin(_numberFormatter, _unitStyle, value, [unit symbol]);
     }
-    int32_t length, numberStart, numberEnd, unitStart, unitEnd;
+    int32_t length, unitStart, unitEnd;
+    const UNumberFormat *numberFormat = unitOnly ? NULL : [_numberFormatter _measurementNumberFormat];
+    if (!unitOnly && !numberFormat)
+        [NSException raise:NSInternalInconsistencyException format:@"Unable to configure measurement number formatter"];
     UChar *buffer = _NSMeasurementFormat([[_locale localeIdentifier] UTF8String], identifier, _unitStyle,
-        value, &length, &numberStart, &numberEnd, &unitStart, &unitEnd);
+        value, numberFormat,
+        &length, &unitStart, &unitEnd);
     if (!buffer) [NSException raise:NSInternalInconsistencyException format:@"Unable to format measurement"];
     NSString *formatted = [[[NSString alloc] initWithCharacters:buffer length:length] autorelease];
     free(buffer);
     if (unitOnly) return [formatted substringWithRange:NSMakeRange(unitStart, unitEnd - unitStart)];
-    NSString *number = [_numberFormatter stringFromNumber:[NSNumber numberWithDouble:value]];
-    if (!number) [NSException raise:NSInternalInconsistencyException format:@"Unable to format measurement number"];
-    formatted = [formatted stringByReplacingCharactersInRange:NSMakeRange(numberStart, numberEnd - numberStart) withString:number];
     if ((_unitOptions & NSMeasurementFormatterUnitOptionsTemperatureWithoutUnit) &&
-        [unit isKindOfClass:[NSUnitTemperature class]] && ![unit isEqual:[NSUnitTemperature kelvin]])
+        [unit isKindOfClass:[NSUnitTemperature class]] && ![unit isEqual:[NSUnitTemperature kelvin]]) {
+        NSString *number = [_numberFormatter stringFromNumber:[NSNumber numberWithDouble:value]];
+        if (!number) [NSException raise:NSInternalInconsistencyException format:@"Unable to format measurement number"];
         return [number stringByAppendingString:@"°"];
+    }
     return formatted;
 }
 

@@ -69,6 +69,24 @@ int main(void)
         expect([[formatter stringFromUnit:[NSUnitLength meters]] isEqualToString:@"m"], @"localized unit symbol");
         expect([formatter stringForObjectValue:@"not a measurement"] == nil, @"reject unrelated object");
 
+        NSArray *roundingLocales = @[@"en_US", @"ru_RU"];
+        NSArray *rounded = @[@"1 meter", @"1 метр"];
+        NSArray *padded = @[@"1.0 meters", @"1,0 метра"];
+        formatter.unitStyle = NSFormattingUnitStyleLong;
+        for (NSUInteger l = 0; l < [roundingLocales count]; ++l) {
+            formatter.locale = [NSLocale localeWithLocaleIdentifier:[roundingLocales objectAtIndex:l]];
+            formatter.numberFormatter.minimumFractionDigits = 0;
+            formatter.numberFormatter.maximumFractionDigits = 0;
+            NSMeasurement *m = [[NSMeasurement alloc] initWithDoubleValue:1.1 unit:[NSUnitLength meters]];
+            expect([[formatter stringFromMeasurement:m] isEqualToString:[rounded objectAtIndex:l]], @"rounding chooses the displayed singular quantity");
+            [m release];
+            formatter.numberFormatter.minimumFractionDigits = 1;
+            formatter.numberFormatter.maximumFractionDigits = 1;
+            m = [[NSMeasurement alloc] initWithDoubleValue:1 unit:[NSUnitLength meters]];
+            expect([[formatter stringFromMeasurement:m] isEqualToString:[padded objectAtIndex:l]], @"visible fraction digits participate in plural selection");
+            [m release];
+        }
+
         NSLog(@"PASS: NSMeasurementFormatter");
     }
     return 0;

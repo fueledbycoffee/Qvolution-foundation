@@ -29,6 +29,8 @@ add_definitions(
 	-DOBJC_OLD_DISPATCH_PROTOTYPES=1
 )
 
+set_source_files_properties(src/NSMeasurementFormatting.cpp PROPERTIES COMPILE_DEFINITIONS "U_SHOW_CPLUSPLUS_API=1")
+
 set(foundation_sources
 	src/_DebugUtils.m
 	src/NSAppleScript.m
@@ -252,7 +254,7 @@ set(foundation_sources
 	src/NSXPCConnection.m
 	src/NSAppleEventManager.m
 	src/NSDateComponentsFormatter.m
-	src/NSMeasurementFormatting.c
+	src/NSMeasurementFormatting.cpp
 	src/NSMeasurementFormatter.m
 	src/NSAppleScript.m
 	src/NSMetadata.m

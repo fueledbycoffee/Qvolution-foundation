@@ -15,9 +15,9 @@ int main(void)
     };
     double values[] = {-1, 0, 1, 1234.5};
     for (int locale = 0; locale < 3; ++locale) for (int i = 0; i < 4; ++i) {
-        int32_t length, ns, ne, us, ue;
-        UChar *wide = _NSMeasurementFormat(locales[locale], "length-meter", 2, values[i], &length, &ns, &ne, &us, &ue);
-        assert(wide && ns == 0 && ne > ns && us > ne && ue == length);
+        int32_t length, us, ue;
+        UChar *wide = _NSMeasurementFormat(locales[locale], "length-meter", 2, values[i], NULL, &length, &us, &ue);
+        assert(wide && us > 0 && ue == length);
         UErrorCode error = U_ZERO_ERROR;
         char text[100];
         u_strToUTF8(text, sizeof(text), NULL, wide, length, &error);
@@ -25,8 +25,8 @@ int main(void)
         if (strcmp(text, expected[locale][i])) { fprintf(stderr, "locale=%s value=%g expected=%s actual=%s\n",locales[locale],values[i],expected[locale][i],text); abort(); }
         free(wide);
     }
-    int32_t length, ns, ne, us, ue;
-    UChar *wide = _NSMeasurementFormat("en_US", "length-meter", 3, 2, &length, &ns, &ne, &us, &ue);
+    int32_t length, us, ue;
+    UChar *wide = _NSMeasurementFormat("en_US", "length-meter", 3, 2, NULL, &length, &us, &ue);
     assert(wide && ue-us == 6); free(wide);
     puts("PASS: production ICU measurement formatting, 12 macOS observations and plural unit field");
 }

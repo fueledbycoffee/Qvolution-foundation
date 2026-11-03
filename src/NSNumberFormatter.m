@@ -16,6 +16,7 @@
 #import <Foundation/NSDecimalNumber.h>
 #import "NSFormatterInternal.h"
 #include <math.h>
+#import "NSMeasurementFormatting.h"
 
 // Splits a number pattern at the semicolons outside '...' quotes.
 static NSArray *patternSegments(NSString *pattern)
@@ -215,6 +216,13 @@ static NSNumberFormatterBehavior defaultBehavior = NSNumberFormatterBehaviorDefa
     }
     [self _regenerateFormatter];
     return [(NSString *)CFNumberFormatterCreateStringWithNumber(kCFAllocatorDefault, _formatter, (CFNumberRef)number) autorelease];
+}
+
+// Borrowed until this formatter is next mutated; the measurement helper clones it.
+- (const UNumberFormat *)_measurementNumberFormat
+{
+    [self _regenerateFormatter];
+    return _formatter ? _CFNumberFormatterGetFormatter(_formatter) : NULL;
 }
 
 - (NSNumber *)numberFromString:(NSString *)string
