@@ -29,6 +29,7 @@
 
 #import "NSDirectoryEnumerator.h"
 #import "NSFileAttributes.h"
+#import "NSFileContentsEqual.h"
 #import "NSFileManagerInternal.h"
 #import "NSPathStore.h"
 #import "NSFilesystemItemRemoveOperation.h"
@@ -198,7 +199,7 @@ static void initializeDirectories(NSMutableSet *paths, NSSearchPathDirectory dir
     BOOL exists = NO;
     BOOL isDir = NO;
     struct stat s;
-    int err = stat([path UTF8String], &s); // this should use the fileSystemRep
+    int err = stat([self fileSystemRepresentationWithPath:path], &s);
     if (err == 0)
     {
         exists = YES;
@@ -295,7 +296,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
 
 - (void)_directoryContentsAtPath:(NSString *)path matchingExtension:(NSString *)extension options:(NSDirectoryEnumerationOptions)options keepExtension:(BOOL)keepExtension error:(NSError **)error toResult:(NSMutableArray *)files
 {
-    DIR *dirp = opendir([path fileSystemRepresentation]);
+    DIR *dirp = opendir([self fileSystemRepresentationWithPath:path]);
     if (!dirp) {
         if (error)
         {
@@ -372,7 +373,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     for (NSURL *url in urls)
     {
         struct stat s;
-        int err = stat([[url path] UTF8String], &s);
+        int err = stat([self fileSystemRepresentationWithPath:[url path]], &s);
         if (err != 0)
         {
             if (error)
@@ -586,7 +587,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         // NSFileGroupOwnerAccountName
         // are possible, but not reasonable atm
 
-        int err = mkdir([[url path] UTF8String], mode);
+        int err = mkdir([self fileSystemRepresentationWithPath:[url path]], mode);
         if (err == -1)
         {
             if (error)
@@ -623,7 +624,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         return nil;
     }
     struct stat s;
-    int err = lstat([path UTF8String], &s);
+    int err = lstat([self fileSystemRepresentationWithPath:path], &s);
     if (err == -1)
     {
         if (error)
@@ -756,11 +757,11 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     int err = 0;
     if (yorn)
     {
-        err = lstat([path UTF8String], &s);
+        err = lstat([self fileSystemRepresentationWithPath:path], &s);
     }
     else
     {
-        err = stat([path UTF8String], &s);
+        err = stat([self fileSystemRepresentationWithPath:path], &s);
     }
     if (err == -1)
     {
@@ -885,7 +886,7 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         return NO;
     }
-    int err = symlink([destPath UTF8String], [path UTF8String]);
+    int err = symlink([self fileSystemRepresentationWithPath:destPath], [self fileSystemRepresentationWithPath:path]);
     if (err == -1)
     {
         if (error)
@@ -902,7 +903,7 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 - (NSString *)destinationOfSymbolicLinkAtPath:(NSString *)path error:(NSError **)error
 {
     char destination[PATH_MAX];
-    ssize_t length = readlink([path fileSystemRepresentation], destination, sizeof(destination));
+    ssize_t length = readlink([self fileSystemRepresentationWithPath:path], destination, sizeof(destination));
     if (length < 0 || (size_t)length == sizeof(destination))
     {
         int savedError = length < 0 ? errno : ENAMETOOLONG;
@@ -954,7 +955,7 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         *error = nil;
     }
-    int err = copyfile([srcPath fileSystemRepresentation], [dstPath fileSystemRepresentation], NULL, flags);
+    int err = copyfile([self fileSystemRepresentationWithPath:srcPath], [self fileSystemRepresentationWithPath:dstPath], NULL, flags);
 
     if (err != 0)
     {
@@ -972,6 +973,12 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 - (BOOL)copyItemAtURL:(NSURL *)srcURL toURL:(NSURL *)dstURL error:(NSError **)error
 {
     return [self copyItemAtPath:srcURL.path toPath:dstURL.path error:error];
+}
+
+- (BOOL)contentsEqualAtPath:(NSString *)path1 andPath:(NSString *)path2
+{
+    if (path1 == nil || path2 == nil) return NO;
+    return NSFileContentsEqualPaths([self fileSystemRepresentationWithPath:path1], [self fileSystemRepresentationWithPath:path2]);
 }
 
 - (NSData *)contentsAtPath:(NSString *)path
@@ -998,7 +1005,7 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
         return NO;
     }
 
-    if (rename([srcPath UTF8String], [dstPath UTF8String]) != -1) {
+    if (rename([self fileSystemRepresentationWithPath:srcPath], [self fileSystemRepresentationWithPath:dstPath]) != -1) {
         return YES;
     }
 
