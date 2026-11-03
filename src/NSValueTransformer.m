@@ -118,8 +118,21 @@ static void checkAndHookSplashScreenTransformer(Class cls)
     }
     checkAndHookSplashScreenTransformer([transformer class]);
     OSSpinLockLock(&registryLock);
-    [[self _transformerRegistry] setObject:transformer forKey:name];
-    OSSpinLockUnlock(&registryLock);
+    @try
+    {
+        if (transformer == nil)
+        {
+            [[self _transformerRegistry] removeObjectForKey:name];
+        }
+        else
+        {
+            [[self _transformerRegistry] setObject:transformer forKey:name];
+        }
+    }
+    @finally
+    {
+        OSSpinLockUnlock(&registryLock);
+    }
 }
 
 + (NSValueTransformer *)valueTransformerForName:(NSString *)name
@@ -258,11 +271,6 @@ static void checkAndHookSplashScreenTransformer(Class cls)
 
 @implementation _NSIsNilTransformer
 
-+ (BOOL)allowsReverseTransformation
-{
-    return NO;
-}
-
 - (id)description
 {
     return @"<shared NSIsNil transformer>";
@@ -276,11 +284,6 @@ static void checkAndHookSplashScreenTransformer(Class cls)
 @end
 
 @implementation _NSIsNotNilTransformer
-
-+ (BOOL)allowsReverseTransformation
-{
-    return NO;
-}
 
 - (id)description
 {
