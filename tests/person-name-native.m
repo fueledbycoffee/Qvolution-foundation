@@ -44,6 +44,31 @@ int main(void)
         if(i==1) {CHECK(equal(n.namePrefix,@"Dr."));CHECK(equal(n.middleName,@"Byron"));CHECK(equal(n.nameSuffix,@"III"));}
         if(i==3) CHECK(equal(n.middleName,@"Byron"));
     }
+    // Rung 3: Apple's parsing table and the same grammar with other names.
+    struct { NSString *input, *given, *family, *middle, *prefix, *suffix; } parsing[] = {
+        {@"Jean-Philippe de Zélicourt", @"Jean-Philippe", @"de Zélicourt", nil, nil, nil},
+        {@"Jonathan (a.k.a. Johnny) Appleseed 🍎", @"Jonathan", @"Appleseed", nil, nil, nil},
+        {@"Dr. Jonathan, Esq.", @"Jonathan", nil, nil, @"Dr.", @"Esq."},
+        {@"Anne Marie de Vries", @"Anne", @"de Vries", @"Marie", nil, nil},
+        {@"de Vries, Anne Marie", @"Anne", @"de Vries", @"Marie", nil, nil},
+        {@"Ms. Élodie, Ph.D.", @"Élodie", nil, nil, @"Ms.", @"Ph.D."},
+        {@"Ada [Countess (of Lovelace)] Lovelace ✨", @"Ada", @"Lovelace", nil, nil, nil},
+        {@"O’Neil,Élodie", @"Élodie", @"O’Neil", nil, nil, nil},
+        {@"Dr. Ada Byron Lovelace, III", @"Ada", @"Lovelace", @"Byron", @"Dr.", @"III"},
+        {@"𐐀da de O’Neil 🍎", @"𐐀da", @"de O’Neil", nil, nil, nil},
+        {@"A\u0301da de Vries", @"A\u0301da", @"de Vries", nil, nil, nil},
+    };
+    unsigned parsingFailures=0;
+    for (unsigned i=0;i<sizeof(parsing)/sizeof(parsing[0]);i++) {
+        NSPersonNameComponents *n=[f personNameComponentsFromString:parsing[i].input];
+        BOOL matches=n && equal(n.givenName,parsing[i].given) && equal(n.familyName,parsing[i].family)
+            && equal(n.middleName,parsing[i].middle) && equal(n.namePrefix,parsing[i].prefix)
+            && equal(n.nameSuffix,parsing[i].suffix);
+        if (!matches) { fprintf(stderr,"FAIL parsing regression %u: %s\n",i,[parsing[i].input UTF8String]); parsingFailures++; }
+        checks++;
+    }
+    CHECK(parsingFailures==0);
+    CHECK([f personNameComponentsFromString:@"🍎 !!! [annotation]"]==nil);
     cases[2].phoneticRepresentation=[NSPersonNameComponents new];
     cases[2].phoneticRepresentation.givenName=@"Ayda";
     cases[2].phoneticRepresentation.familyName=@"Luvlays";
