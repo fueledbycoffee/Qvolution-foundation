@@ -7,6 +7,7 @@
 
 #import <dispatch/dispatch.h>
 #import <CoreFoundation/CFBundle.h>
+#import <CoreFoundation/CFDictionary.h>
 #import <CoreFoundation/CFBundlePriv.h>
 #import <CoreFoundation/CFPropertyList.h>
 #import <objc/runtime.h>
@@ -23,7 +24,7 @@ NSString *const NSLoadedClasses = @"NSLoadedClasses";
 
 static NSMutableDictionary *bundlesByIdentifier = nil;
 static NSBundle *mainBundle = nil;
-static NSMutableDictionary *classToBundle = nil;
+static CFMutableDictionaryRef classToBundle = NULL;
 static NSMutableDictionary<NSString *, NSBundle *> *bundlesByPath = nil;
 static NSMutableDictionary<NSString *, NSBundle *> *frameworkBundlesByPath = nil;
 static NSMutableDictionary<NSString *, NSBundle *> *otherBundlesByPath = nil;
@@ -101,7 +102,8 @@ static NSString* frameworkPathForPath(NSString *filePath) {
     static dispatch_once_t once = 0L;
     dispatch_once(&once, ^{
         bundlesByIdentifier = [[NSMutableDictionary alloc] init];
-        classToBundle = [[NSMutableDictionary alloc] init];
+        classToBundle = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL,
+                                                  &kCFTypeDictionaryValueCallBacks);
         bundlesByPath = [NSMutableDictionary new];
         frameworkBundlesByPath = [NSMutableDictionary new];
         otherBundlesByPath = [NSMutableDictionary new];
@@ -212,44 +214,49 @@ static NSString* frameworkPathForPath(NSString *filePath) {
 
 + (NSBundle *)bundleForClass:(Class)aClass
 {
-    if ([aClass respondsToSelector: @selector(bundleForClass)]) {
-        return [aClass bundleForClass];
+    if (aClass == Nil) {
+        return [self mainBundle];
+    }
+    if (class_respondsToSelector(object_getClass(aClass), @selector(bundleForClass))) {
+        NSBundle *bundle = [aClass bundleForClass];
+        return bundle ?: [self mainBundle];
     }
 
-    @synchronized (classToBundle) {
-        NSBundle *bundle = classToBundle[aClass];
+    @synchronized ((id)classToBundle) {
+        NSBundle *bundle = (NSBundle *)CFDictionaryGetValue(classToBundle, aClass);
         if (bundle != nil) {
             return bundle;
         }
     }
 
+    NSBundle *bundle = nil;
+    NSBundle *main = [self mainBundle];
     const char *fileName = class_getImageName(aClass);
-    if (fileName == NULL) {
-        // According to Cocotron's implementation,
-        // this is correct behaviour for Nil class.
-        return [self mainBundle];
+    if (fileName != NULL) {
+        NSString *filePath = [NSString stringWithUTF8String:fileName];
+        NSString *bundlePath = _NSFrameworkPathFromLibraryPath(filePath);
+        if (bundlePath == nil) {
+            bundlePath = _NSBundlePathFromExecutablePath(filePath);
+        }
+        if ([bundlePath isEqualToString:[main bundlePath]]) {
+            bundle = main;
+        } else if (bundlePath != nil) {
+            bundle = [self bundleWithPath:bundlePath];
+        }
+    }
+    if (bundle == nil) {
+        bundle = main;
     }
 
-    NSString *filePath = [NSString stringWithUTF8String: fileName];
-    
-    NSString *frameworkPath = _NSFrameworkPathFromLibraryPath(filePath);
-    if (frameworkPath)
-    {
-	filePath = frameworkPath;
+    if (bundle != nil) {
+        @synchronized ((id)classToBundle) {
+            NSBundle *existing = (NSBundle *)CFDictionaryGetValue(classToBundle, aClass);
+            if (existing != nil) {
+                return existing;
+            }
+            CFDictionarySetValue(classToBundle, aClass, bundle);
+        }
     }
-    else
-    {
-	NSString *executablePath = _NSBundlePathFromExecutablePath(filePath);
-	if (!executablePath) return nil;
-	filePath = executablePath;
-    }
-
-    NSBundle *bundle = [self bundleWithPath:filePath];
-
-    @synchronized (classToBundle) {
-        classToBundle[aClass] = bundle;
-    }
-
     return bundle;
 }
 
