@@ -168,6 +168,9 @@ int main(int argc,char **argv) {
   f->_allowedUnits=NSByteCountFormatterUseMB;expect([f stringFromByteCount:1250000],"1.2 MB");
   f->_zeroPadsFractionDigits=YES;expect([f stringFromByteCount:1000000],"1.0 MB");
   f->_allowedUnits=NSByteCountFormatterUseKB|NSByteCountFormatterUseGB;expect([f stringFromByteCount:1000000],"1000 KB");
+  f->_adaptive=NO;f->_zeroPadsFractionDigits=NO;f->_allowedUnits=NSByteCountFormatterUseKB;
+  expect([f stringFromByteCount:12345000],"12345 KB");expect([f stringFromByteCount:-12345000],"-12345 KB");
+  expect([f stringFromByteCount:12345],"12.3 KB");f->_zeroPadsFractionDigits=YES;expect([f stringFromByteCount:12000],"12.0 KB");
   f->_allowedUnits=NSByteCountFormatterUseBytes;f->_includesActualByteCount=YES;expect([f stringFromByteCount:42],"42 bytes");
   f->_includesCount=NO;expect([f stringFromByteCount:42],"bytes");f->_includesUnit=NO;expect([f stringFromByteCount:42],"");
   puts("PASS byte: 144 signed/exact byte cases, units, scale, precision and output flags (numeric formatter double)");

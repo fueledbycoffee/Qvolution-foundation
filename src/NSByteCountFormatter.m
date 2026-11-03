@@ -150,8 +150,8 @@ static NSArray *_NSByteCountFormatterUnits;
     [formatter setLocale:[NSLocale currentLocale]];
     [formatter setNumberStyle:NSNumberFormatterDecimalStyle];
     [formatter setUsesGroupingSeparator:YES];
-    NSUInteger fractionDigits = unitIdx <= 1 ? 0 : (unitIdx == 2 ? 1 : 2);
-    if (unitIdx == 0 || _adaptive)
+    NSUInteger fractionDigits = !_adaptive || unitIdx <= 1 ? 0 : (unitIdx == 2 ? 1 : 2);
+    if (unitIdx == 0 || _adaptive || (double)magnitude / selectedDivisor >= 100)
     {
         [formatter setMaximumFractionDigits:unitIdx == 0 ? 0 : fractionDigits];
         [formatter setMinimumFractionDigits:_zeroPadsFractionDigits && unitIdx != 0 ? fractionDigits : 0];
