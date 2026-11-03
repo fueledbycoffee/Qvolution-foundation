@@ -95,6 +95,7 @@
 #import <Foundation/NSDateInterval.h>
 #import <Foundation/NSDateIntervalFormatter.h>
 #import <Foundation/NSPersonNameComponents.h>
+#import <Foundation/NSPersonNameComponentsFormatter.h>
 
 #import <Foundation/FoundationErrors.h>
 

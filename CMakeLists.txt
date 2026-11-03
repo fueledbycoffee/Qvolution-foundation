@@ -275,6 +275,7 @@ set(foundation_sources
 	src/NSDateInterval.m
 	src/NSDateIntervalFormatter.m
 	src/NSPersonNameComponents.m
+	src/NSPersonNameComponentsFormatter.m
 	src/NSGarbageCollector.m
 	src/NSUnarchiver.m
 	src/NSDeserializer.m
