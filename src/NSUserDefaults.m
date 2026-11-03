@@ -313,11 +313,15 @@ static void initQueues() {
 - (BOOL)boolForKey:(NSString *)key
 {
     id value = [self objectForKey:key];
-    if ([value isNSString__] || [value isNSNumber__])
+    if ([value isNSString__])
     {
-        return [value boolValue]; // this is not exactly correct, but should work ok
+        return [value caseInsensitiveCompare:@"true"] == NSOrderedSame ||
+               [value caseInsensitiveCompare:@"YES"] == NSOrderedSame ||
+               [value isEqualToString:@"1"];
     }
-    return 0.0f;
+    if ([value isNSNumber__])
+        return [value boolValue];
+    return NO;
 }
 
 - (NSURL *)URLForKey:(NSString *)key
