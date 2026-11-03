@@ -7,15 +7,28 @@
 
 #import <Foundation/NSNotification.h>
 #import <Foundation/NSArray.h>
+#import <Foundation/NSIndexSet.h>
+#import <Foundation/NSNull.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSOperation.h>
 #import "NSNotificationInternal.h"
 #import <dispatch/dispatch.h>
 #import <pthread.h>
 
+extern id objc_initWeakOrNil(id *location, id value);
+extern id objc_loadWeakRetained(id *location);
+extern void objc_destroyWeak(id *location);
+
 @interface _NSNotificationObserver : NSObject
 {
+	// Selector registrations do not keep the observer alive (Apple, NotificationCenter
+	// addObserver(_:selector:name:object:): since macOS 10.11 an observer that is never
+	// removed is cleaned up the next time the center would have posted to it). _weakObserver
+	// is a zeroing weak reference; _observer is only an identity for removal and is never
+	// messaged unless the observer's class cannot be weakly referenced (_weakCapable NO).
 	id _observer;
+	id _weakObserver;
+	BOOL _weakCapable;
 	SEL _selector;
 	NSString* _name;
 	id _object;
@@ -48,6 +61,7 @@
     if (self)
     {
         _observer = observer;
+        _weakCapable = observer == nil || objc_initWeakOrNil(&_weakObserver, observer) != nil;
         _selector = selector;
         _name = [name copy];
         _object = object;
@@ -59,13 +73,33 @@
 
 - (void)dealloc
 {
+    objc_destroyWeak(&_weakObserver);
     [_name release];
     [_queue release];
     [_block release];
     [super dealloc];
 }
 
-- (void)postNotification:(NSNotification *)notif
+// The observer to message, retained; nil once a weakly referenced observer is gone.
+- (id)retainedTarget
+{
+    if (_block != NULL || _selector == NULL || _observer == nil)
+        return nil;
+    if (_weakCapable)
+        return objc_loadWeakRetained(&_weakObserver);
+    return [_observer retain];
+}
+
+- (BOOL)isStale
+{
+    if (_block != NULL || !_weakCapable || _observer == nil)
+        return NO;
+    id target = objc_loadWeakRetained(&_weakObserver);
+    [target release];
+    return target == nil;
+}
+
+- (void)postNotification:(NSNotification *)notif target:(id)target
 {
     if (_queue != nil && _block != NULL)
     {
@@ -82,9 +116,9 @@
     {
         _block(notif);
     }
-    else if (_observer != nil && _selector != NULL)
+    else if (target != nil)
     {
-        [_observer performSelector:_selector withObject:notif];
+        [target performSelector:_selector withObject:notif];
     }
 }
 
@@ -138,21 +172,47 @@
     NSString *name = [notification name];
     id object = [notification object];
     
+    // Matching registrations and their observers are taken under the lock and kept alive
+    // until delivery ends, so an observer released by an earlier observer's handler during
+    // this post still receives it (observed on macOS 12.7.6). Entries whose observer is
+    // gone are removed instead.
+    NSMutableArray *observers = [[NSMutableArray alloc] init];
+    NSMutableArray *targets = [[NSMutableArray alloc] init];
     pthread_mutex_lock(&_observersLock);
-    NSArray *observers = [_observers copy];
+    NSMutableIndexSet *stale = nil;
+    NSUInteger index = 0;
+    for (_NSNotificationObserver *observer in _observers)
+    {
+        if ((name == nil || observer.name == nil || [observer.name isEqualToString:name]) &&
+            (object == nil || observer.object == nil || object == observer.object))
+        {
+            id target = [observer retainedTarget];
+            if (target == nil && [observer isStale])
+            {
+                if (stale == nil)
+                    stale = [NSMutableIndexSet indexSet];
+                [stale addIndex:index];
+            }
+            else
+            {
+                [observers addObject:observer];
+                [targets addObject:target != nil ? target : (id)[NSNull null]];
+            }
+            [target release];
+        }
+        index++;
+    }
+    if (stale != nil)
+        [_observers removeObjectsAtIndexes:stale];
     pthread_mutex_unlock(&_observersLock);
 
-    for (_NSNotificationObserver *observer in observers)
+    NSUInteger count = [observers count];
+    for (NSUInteger i = 0; i < count; i++)
     {
-        if (name == nil || observer.name == nil || [observer.name isEqualToString:name])
-        {
-            id obj = observer.object;
-            if (object == nil || obj == nil || object == obj)
-            {
-                [observer postNotification:notification];
-            }
-        }
+        id target = [targets objectAtIndex:i];
+        [[observers objectAtIndex:i] postNotification:notification target:target == [NSNull null] ? nil : target];
     }
+    [targets release];
     [observers release];
 }
 
@@ -186,13 +246,13 @@
 - (void)removeObserver:(id)observer name:(NSString *)aName object:(id)anObject
 {
     pthread_mutex_lock(&_observersLock);
+    // A nil name or sender is not a removal criterion (Apple, removeObserver(_:name:object:)).
+    // The observer is either a selector registration's observer or a block registration's token.
     NSIndexSet *indicies = [_observers indexesOfObjectsPassingTest:^BOOL(_NSNotificationObserver *notifObserver, NSUInteger idx, BOOL *stop) {
-        BOOL matchesObject = YES;
-        if (anObject != nil)
-        {
-            matchesObject = notifObserver.object == anObject;
-        }
-        return notifObserver.observer == observer && matchesObject && [notifObserver.name isEqualToString:aName];
+        BOOL matchesObserver = observer != nil && (notifObserver == observer || notifObserver.observer == observer);
+        BOOL matchesName = aName == nil || [notifObserver.name isEqualToString:aName];
+        BOOL matchesObject = anObject == nil || notifObserver.object == anObject;
+        return matchesObserver && matchesName && matchesObject;
     }];
     [_observers removeObjectsAtIndexes:indicies];
     pthread_mutex_unlock(&_observersLock);
