@@ -104,114 +104,84 @@ static NSArray *_NSByteCountFormatterUnits;
 #warning TODO localization
 - (NSString *)stringFromByteCount:(long long)byteCount
 {
-    unsigned long long unsignedByteCount = (unsigned long long)byteCount;
-
-    if (unsignedByteCount == 0 && _allowsNonnumericFormatting && _includesUnit && _includesCount)
+    if (byteCount == 0 && _allowsNonnumericFormatting && _includesUnit && _includesCount)
     {
         NSString *zero = _formattingContext == NSFormattingContextMiddleOfSentence ? @"zero" : @"Zero";
-        // Use "Zero KB" for default or all style, or if KB is allowed and bytes isn't.
         if (_allowedUnits == NSByteCountFormatterUseAll ||
             _allowedUnits == NSByteCountFormatterUseDefault ||
             (_allowedUnits & NSByteCountFormatterUseKB && !(_allowedUnits & NSByteCountFormatterUseBytes)))
         {
             return [zero stringByAppendingString:@" KB"];
         }
-        else
-        {
-            return [zero stringByAppendingString:@" bytes"];
-        }
+        return [zero stringByAppendingString:@" bytes"];
     }
 
-    unsigned long long thousand = 0;
-    switch (_countStyle)
+    if (!_includesCount && !_includesUnit)
     {
-        case NSByteCountFormatterCountStyleBinary:
-        case NSByteCountFormatterCountStyleMemory:
-            thousand = 1024;
-            break;
-        default:
-            thousand = 1000;
-            break;
+        return @"";
     }
 
-    NSString *countString = @"";
-    NSString *unitString = @"";
-    NSString *spaceString = @"";
-
-    NSUInteger unitIdx = 0;
-    unsigned long long unitMax = thousand;
-    unsigned long long unitMin = 1;
-
-    if (_allowedUnits == NSByteCountFormatterUseDefault || _allowedUnits == NSByteCountFormatterUseAll)
+    unsigned long long magnitude = byteCount < 0 ? 0ULL - (unsigned long long)byteCount : (unsigned long long)byteCount;
+    NSUInteger base = (_countStyle == NSByteCountFormatterCountStyleBinary ||
+                       _countStyle == NSByteCountFormatterCountStyleMemory) ? 1024 : 1000;
+    NSByteCountFormatterUnits units = _allowedUnits;
+    if (units == NSByteCountFormatterUseDefault)
     {
-        while (unitMax < unsignedByteCount)
-        {
-            unitIdx++;
-            unitMin = unitMax;
+        units = NSByteCountFormatterUseAll;
+    }
 
-            if (byteCount / unitMin < thousand)
-            {
-                break;
-            }
-            else
-            {
-                unitMax *= thousand;
-            }
-        }
-
-        if (_includesCount)
+    NSUInteger unitIdx = NSNotFound;
+    double divisor = 1;
+    double selectedDivisor = 1;
+    for (NSUInteger i = 0; i < [_NSByteCountFormatterUnits count]; i++, divisor *= base)
+    {
+        if ((units & (1UL << i)) && (unitIdx == NSNotFound || magnitude >= divisor))
         {
-            countString = [NSString stringWithFormat:@"%llu", unsignedByteCount / unitMin];
+            unitIdx = i;
+            selectedDivisor = divisor;
         }
+    }
+    if (unitIdx == NSNotFound)
+    {
+        return @"";
+    }
 
-        if (_includesUnit)
-        {
-            unitString = [_NSByteCountFormatterUnits objectAtIndex:unitIdx];
-        }
-
-        if (_includesCount && _includesUnit)
-        {
-            spaceString = @" ";
-        }
+    NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
+    [formatter setLocale:[NSLocale currentLocale]];
+    [formatter setNumberStyle:NSNumberFormatterDecimalStyle];
+    [formatter setUsesGroupingSeparator:YES];
+    NSUInteger fractionDigits = unitIdx <= 1 ? 0 : (unitIdx == 2 ? 1 : 2);
+    if (unitIdx == 0 || _adaptive)
+    {
+        [formatter setMaximumFractionDigits:unitIdx == 0 ? 0 : fractionDigits];
+        [formatter setMinimumFractionDigits:_zeroPadsFractionDigits && unitIdx != 0 ? fractionDigits : 0];
     }
     else
     {
-#warning TODO figure out these other cases
+        [formatter setUsesSignificantDigits:YES];
+        [formatter setMaximumSignificantDigits:3];
+        [formatter setMinimumSignificantDigits:_zeroPadsFractionDigits ? 3 : 1];
     }
 
-    NSUInteger fractionDigits = 2;
-    if (_adaptive)
+    NSNumber *count = unitIdx == 0 ? @(byteCount) : @((double)byteCount / selectedDivisor);
+    NSString *countString = _includesCount ? [formatter stringFromNumber:count] : @"";
+    NSString *unitString = @"";
+    if (_includesUnit)
     {
-        if (unitIdx <= 1)
-        {
-            fractionDigits = 0;
-        }
-        else if (unitIdx == 2)
-        {
-            fractionDigits = 1;
-        }
+        unitString = unitIdx == 0 && magnitude == 1 ? @"byte" : [_NSByteCountFormatterUnits objectAtIndex:unitIdx];
     }
-
     NSString *actualCountString = @"";
-    if (_includesActualByteCount)
+    if (_includesActualByteCount && _includesCount && _includesUnit && unitIdx != 0)
     {
-        static NSNumberFormatter *fileSizeFormatter = nil;
-        static dispatch_once_t once = 0L;
-        dispatch_once(&once, ^{
-            fileSizeFormatter = [[NSNumberFormatter alloc] init];
-            [fileSizeFormatter setLocale:[NSLocale currentLocale]];
-            [fileSizeFormatter setFormatterBehavior:NSNumberFormatterBehavior10_4];
-            [fileSizeFormatter setNumberStyle:NSNumberFormatterDecimalStyle];
-            [fileSizeFormatter setUsesGroupingSeparator:YES];
-            [fileSizeFormatter setRoundingMode:NSNumberFormatterRoundUp];
-            [fileSizeFormatter setMaximumFractionDigits:0];
-            [fileSizeFormatter setGroupingSize:3];
-        });
-        actualCountString = [NSString stringWithFormat:@" (%@ %@)", [fileSizeFormatter stringFromNumber:@(unsignedByteCount)],
-                             [_NSByteCountFormatterUnits objectAtIndex:0]];
+        [formatter setUsesSignificantDigits:NO];
+        [formatter setMinimumFractionDigits:0];
+        [formatter setMaximumFractionDigits:0];
+        actualCountString = [NSString stringWithFormat:@" (%@ bytes)", [formatter stringFromNumber:@(byteCount)]];
     }
-
-    return [NSString stringWithFormat:@"%@%@%@%@", countString, spaceString, unitString, actualCountString];
+    NSString *result = [NSString stringWithFormat:@"%@%@%@%@", countString,
+                        _includesCount && _includesUnit ? @" " : @"", unitString, actualCountString];
+    [formatter release];
+    return result;
 }
 
 - (NSString *)stringForObjectValue:(id)obj
