@@ -56,11 +56,13 @@ __attribute__((objc_root_class))
 @implementation FixtureString
 - (BOOL)isEqual:(id)o { return [o isKindOfClass:[FixtureString class]] && !strcmp(text,((FixtureString *)o)->text); }
 @end
-@interface NSException : NSObject
+@interface NSException : NSObject { id _name; }
 + (void)raise:(id)name format:(id)format;
+- (id)name;
 @end
 @implementation NSException
-+ (void)raise:(id)name format:(id)format { @throw [self new]; }
++ (void)raise:(id)name format:(id)format { NSException *e=[self new];e->_name=name;@throw e; }
+- (id)name { return _name; }
 @end
 #define NSInvalidArgumentException @"invalid"
 #define NSMallocException @"malloc"

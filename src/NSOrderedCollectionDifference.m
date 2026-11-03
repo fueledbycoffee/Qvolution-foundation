@@ -122,7 +122,8 @@ static NSOrderedCollectionChange *changeAtIndex(NSArray *changes, NSUInteger ind
     NSMutableArray *changes = [NSMutableArray array];
     for (NSOrderedCollectionChange *change in _changes) {
         NSOrderedCollectionChange *mapped = block(change);
-        if (mapped) [changes addObject:mapped];
+        if (!mapped) [NSException raise:NSInvalidArgumentException format:@"Missing transformed change"];
+        [changes addObject:mapped];
     }
     return [[[NSOrderedCollectionDifference alloc] initWithChanges:changes] autorelease];
 }

@@ -54,9 +54,27 @@ static int duplicateInsertion(void) {
     puts("PASS: duplicate insertion preserves ordered elements and the receiver");
     return 0;
 }
+static int nilTransformation(void) {
+    NSOrderedCollectionChange *remove=[NSOrderedCollectionChange changeWithObject:@"x" type:NSCollectionChangeRemove index:0];
+    NSOrderedCollectionDifference *difference=[[[NSOrderedCollectionDifference alloc]initWithChanges:@[remove]]autorelease];
+    BOOL omit=[difference hasChanges];
+    id (^transform)(NSOrderedCollectionChange *)=^id(NSOrderedCollectionChange *change) { return omit ? nil : change; };
+    @try {
+        [difference differenceByTransformingChangesWithBlock:transform];
+    } @catch (NSException *exception) {
+        if ([[exception name]isEqual:NSInvalidArgumentException] && [difference hasChanges]) {
+            puts("PASS: nil transformed change raises NSInvalidArgumentException");
+            return 0;
+        }
+    }
+    puts("FAIL: nil transformed change must raise NSInvalidArgumentException");
+    return 1;
+}
 int main(int argc, const char **argv) {
     if (argc>1 && !strcmp(argv[1],"duplicate-insertion")) return duplicateInsertion();
+    if (argc>1 && !strcmp(argv[1],"nil-transformation")) return nilTransformation();
     assert(duplicateInsertion()==0);
+    assert(nilTransformation()==0);
     check(@[],@[],@[],@[]);
     check(@[],@[@"a"],@[],@[@"a"]);
     check(@[@"a"],@[],@[@"a"],@[]);
