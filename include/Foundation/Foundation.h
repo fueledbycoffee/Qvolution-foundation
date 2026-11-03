@@ -24,6 +24,7 @@
 #import <Foundation/NSFormatter.h>
 #import <Foundation/NSEnergyFormatter.h>
 #import <Foundation/NSLengthFormatter.h>
+#import <Foundation/NSListFormatter.h>
 #import <Foundation/NSMassFormatter.h>
 #import <Foundation/NSHashTable.h>
 #import <Foundation/NSHTTPCookie.h>

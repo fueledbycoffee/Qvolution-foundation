@@ -118,6 +118,7 @@ set(foundation_sources
 	src/NSLengthFormatter.m
 	src/NSLikePredicateOperator.m
 	src/NSLinguisticTagger.m
+	src/NSListFormatter.m
 	src/NSLinkCheckingResult.m
 	src/NSLocale.m
 	src/NSLocalizableString.m
