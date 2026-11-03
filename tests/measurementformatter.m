@@ -48,6 +48,27 @@ int main(void)
         expect([formatter.locale.localeIdentifier isEqualToString:[(NSLocale *)[NSLocale currentLocale] localeIdentifier]], @"nil locale resets");
         expect(formatter.numberFormatter.numberStyle == NSNumberFormatterDecimalStyle, @"nil numberFormatter resets");
 
+        NSArray *locales = @[@"en_US_POSIX", @"fr_FR", @"ja_JP"];
+        NSArray *expected = @[
+            @[@"-1 m", @"0 m", @"1 m", @"1234.5 m"],
+            @[@"-1\u202fm", @"0\u202fm", @"1\u202fm", @"1\u202f234,5\u202fm"],
+            @[@"-1 m", @"0 m", @"1 m", @"1,234.5 m"]
+        ];
+        double values[] = {-1, 0, 1, 1234.5};
+        formatter.unitStyle = NSFormattingUnitStyleMedium;
+        formatter.unitOptions = NSMeasurementFormatterUnitOptionsProvidedUnit;
+        for (NSUInteger l = 0; l < [locales count]; ++l) {
+            formatter.locale = [NSLocale localeWithLocaleIdentifier:[locales objectAtIndex:l]];
+            for (NSUInteger i = 0; i < 4; ++i) {
+                NSMeasurement *measurement = [[NSMeasurement alloc] initWithDoubleValue:values[i] unit:[NSUnitLength meters]];
+                expect([[formatter stringFromMeasurement:measurement] isEqualToString:[[expected objectAtIndex:l] objectAtIndex:i]], @"macOS observed localized meter formatting");
+                [measurement release];
+            }
+        }
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        expect([[formatter stringFromUnit:[NSUnitLength meters]] isEqualToString:@"m"], @"localized unit symbol");
+        expect([formatter stringForObjectValue:@"not a measurement"] == nil, @"reject unrelated object");
+
         NSLog(@"PASS: NSMeasurementFormatter");
     }
     return 0;

@@ -1,6 +1,6 @@
 #import <Foundation/NSFormatter.h>
 
-@class NSLocale, NSNumberFormatter;
+@class NSLocale, NSNumberFormatter, NSMeasurement, NSUnit;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -10,8 +10,6 @@ typedef NS_OPTIONS(NSUInteger, NSMeasurementFormatterUnitOptions) {
     NSMeasurementFormatterUnitOptionsTemperatureWithoutUnit = (1UL << 2),
 };
 
-// Formatting (stringFromMeasurement:, stringFromUnit:) needs NSMeasurement and NSUnit, which are not
-// implemented yet (darling#986).
 @interface NSMeasurementFormatter : NSFormatter
 {
     NSMeasurementFormatterUnitOptions _unitOptions;
@@ -19,6 +17,9 @@ typedef NS_OPTIONS(NSUInteger, NSMeasurementFormatterUnitOptions) {
     NSLocale *_locale;
     NSNumberFormatter *_numberFormatter;
 }
+
+- (NSString *)stringFromMeasurement:(NSMeasurement *)measurement;
+- (NSString *)stringFromUnit:(NSUnit *)unit;
 
 @property NSMeasurementFormatterUnitOptions unitOptions;
 @property NSFormattingUnitStyle unitStyle;
