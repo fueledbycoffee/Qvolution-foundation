@@ -6,9 +6,11 @@
 //
 
 #import "_NSFileIO.h"
+#import "NSFileSystemRepresentation.h"
 
 #import <Foundation/FoundationErrors.h>
 #import <Foundation/NSString.h>
+#import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSURL.h>
 #import <Foundation/NSError.h>
 #import <Foundation/NSDictionary.h>
@@ -49,7 +51,8 @@ void *_NSReadBytesFromFile(NSString *path, NSDataReadingOptions readOptionsMask,
 {
     *length = 0;
 
-    int fd = open([path UTF8String], O_RDONLY);
+    const char *filePath = NSFileSystemRepresentation(path);
+    int fd = filePath ? open(filePath, O_RDONLY) : -1;
     if (fd < 0)
     {
         if (err != NULL)
@@ -183,6 +186,15 @@ BOOL _NSWriteBytesToFile(NSData *data, id pathOrURL, NSDataWritingOptions option
         pathOrURL = [pathOrURL path];
     }
     NSString *dest = pathOrURL;
+    const char *destination = NSFileSystemRepresentation(dest);
+    if (destination == NULL)
+    {
+        if (errorPtr != NULL)
+        {
+            *errorPtr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        }
+        return NO;
+    }
     if ((options & NSDataWritingAtomic) != 0)
     {
         static int atomicId = 0;
@@ -190,7 +202,15 @@ BOOL _NSWriteBytesToFile(NSData *data, id pathOrURL, NSDataWritingOptions option
         pathOrURL = [pathOrURL stringByAppendingFormat:@".tmp%d", atomicId];
     }
     int fd = -1;
-    const char *path = [pathOrURL UTF8String];
+    const char *path = dest == pathOrURL ? destination : NSFileSystemRepresentation(pathOrURL);
+    if (path == NULL)
+    {
+        if (errorPtr != NULL)
+        {
+            *errorPtr = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        }
+        return NO;
+    }
     if ((options & NSDataWritingWithoutOverwriting) != 0)
     {
         struct stat info;
@@ -255,7 +275,7 @@ BOOL _NSWriteBytesToFile(NSData *data, id pathOrURL, NSDataWritingOptions option
     close(fd);
     if (remaining == 0 && dest != pathOrURL)
     {
-        if (rename([pathOrURL UTF8String], [dest UTF8String]) != -1)
+        if (rename(path, destination) != -1)
         {
             return YES;
         }

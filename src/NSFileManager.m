@@ -29,6 +29,8 @@
 
 #import "NSDirectoryEnumerator.h"
 #import "NSFileAttributes.h"
+#import "NSFileContentsEqual.h"
+#import "NSFileSystemRepresentation.h"
 #import "NSFileManagerInternal.h"
 #import "NSPathStore.h"
 #import "NSFilesystemItemRemoveOperation.h"
@@ -198,7 +200,8 @@ static void initializeDirectories(NSMutableSet *paths, NSSearchPathDirectory dir
     BOOL exists = NO;
     BOOL isDir = NO;
     struct stat s;
-    int err = stat([path UTF8String], &s); // this should use the fileSystemRep
+    const char *filePath = NSFileSystemRepresentation(path);
+    int err = filePath ? stat(filePath, &s) : -1;
     if (err == 0)
     {
         exists = YES;
@@ -295,7 +298,8 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
 
 - (void)_directoryContentsAtPath:(NSString *)path matchingExtension:(NSString *)extension options:(NSDirectoryEnumerationOptions)options keepExtension:(BOOL)keepExtension error:(NSError **)error toResult:(NSMutableArray *)files
 {
-    DIR *dirp = opendir([path fileSystemRepresentation]);
+    const char *filePath = NSFileSystemRepresentation(path);
+    DIR *dirp = filePath ? opendir(filePath) : NULL;
     if (!dirp) {
         if (error)
         {
@@ -372,7 +376,8 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     for (NSURL *url in urls)
     {
         struct stat s;
-        int err = stat([[url path] UTF8String], &s);
+        const char *filePath = NSFileSystemRepresentation([url path]);
+        int err = filePath ? stat(filePath, &s) : -1;
         if (err != 0)
         {
             if (error)
@@ -586,7 +591,8 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         // NSFileGroupOwnerAccountName
         // are possible, but not reasonable atm
 
-        int err = mkdir([[url path] UTF8String], mode);
+        const char *filePath = NSFileSystemRepresentation([url path]);
+        int err = filePath ? mkdir(filePath, mode) : -1;
         if (err == -1)
         {
             if (error)
@@ -623,7 +629,8 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         return nil;
     }
     struct stat s;
-    int err = lstat([path UTF8String], &s);
+    const char *filePath = NSFileSystemRepresentation(path);
+    int err = filePath ? lstat(filePath, &s) : -1;
     if (err == -1)
     {
         if (error)
@@ -753,14 +760,16 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 - (NSDictionary *)fileAttributesAtPath:(NSString *)path traverseLink:(BOOL)yorn
 {
     struct stat s;
+    const char *filePath = NSFileSystemRepresentation(path);
+    if (filePath == NULL) return nil;
     int err = 0;
     if (yorn)
     {
-        err = lstat([path UTF8String], &s);
+        err = lstat(filePath, &s);
     }
     else
     {
-        err = stat([path UTF8String], &s);
+        err = stat(filePath, &s);
     }
     if (err == -1)
     {
@@ -885,7 +894,9 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         return NO;
     }
-    int err = symlink([destPath UTF8String], [path UTF8String]);
+    const char *linkPath = NSFileSystemRepresentation(path);
+    const char *destination = linkPath ? NSFileSystemRepresentation(destPath) : NULL;
+    int err = destination ? symlink(destination, linkPath) : -1;
     if (err == -1)
     {
         if (error)
@@ -902,7 +913,8 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 - (NSString *)destinationOfSymbolicLinkAtPath:(NSString *)path error:(NSError **)error
 {
     char destination[PATH_MAX];
-    ssize_t length = readlink([path fileSystemRepresentation], destination, sizeof(destination));
+    const char *filePath = NSFileSystemRepresentation(path);
+    ssize_t length = filePath ? readlink(filePath, destination, sizeof(destination)) : -1;
     if (length < 0 || (size_t)length == sizeof(destination))
     {
         int savedError = length < 0 ? errno : ENAMETOOLONG;
@@ -954,7 +966,9 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         *error = nil;
     }
-    int err = copyfile([srcPath fileSystemRepresentation], [dstPath fileSystemRepresentation], NULL, flags);
+    const char *source = NSFileSystemRepresentation(srcPath);
+    const char *destination = source ? NSFileSystemRepresentation(dstPath) : NULL;
+    int err = destination ? copyfile(source, destination, NULL, flags) : -1;
 
     if (err != 0)
     {
@@ -972,6 +986,14 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 - (BOOL)copyItemAtURL:(NSURL *)srcURL toURL:(NSURL *)dstURL error:(NSError **)error
 {
     return [self copyItemAtPath:srcURL.path toPath:dstURL.path error:error];
+}
+
+- (BOOL)contentsEqualAtPath:(NSString *)path1 andPath:(NSString *)path2
+{
+    if (path1 == nil || path2 == nil) return NO;
+    const char *first = NSFileSystemRepresentation(path1);
+    const char *second = first ? NSFileSystemRepresentation(path2) : NULL;
+    return second != NULL && NSFileContentsEqualPaths(first, second);
 }
 
 - (NSData *)contentsAtPath:(NSString *)path
@@ -998,7 +1020,9 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
         return NO;
     }
 
-    if (rename([srcPath UTF8String], [dstPath UTF8String]) != -1) {
+    const char *source = NSFileSystemRepresentation(srcPath);
+    const char *destination = source ? NSFileSystemRepresentation(dstPath) : NULL;
+    if (destination != NULL && rename(source, destination) != -1) {
         return YES;
     }
 
@@ -1058,6 +1082,11 @@ static inline NSStringEncoding defaultEncoding()
 
 - (__strong const char *)fileSystemRepresentationWithPath:(NSString *)path
 {
+    if (path == nil)
+    {
+        [NSException raise:NSInvalidArgumentException format:@"path must not be nil"];
+        return NULL;
+    }
     CFIndex maxLen = CFStringGetMaximumSizeOfFileSystemRepresentation((CFStringRef)path);
     char *buffer = malloc(maxLen);
     if (buffer == NULL)

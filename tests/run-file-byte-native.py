@@ -4,7 +4,7 @@ Run through qv-slot build. --source-ref retains before-fix failures.
 The fixture does not validate ICU localization or the full guest runtime.
 """
 import argparse, pathlib, subprocess
-p=argparse.ArgumentParser();p.add_argument('--source-ref');p.add_argument('--case',action='append',choices=['byte','compare','path','error']);p.add_argument('--out',type=pathlib.Path,required=True);args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--source-ref');p.add_argument('--case',action='append',choices=['byte','compare','path','error','empty','io']);p.add_argument('--out',type=pathlib.Path,required=True);args=p.parse_args()
 r=pathlib.Path(__file__).resolve().parents[1];args.out.mkdir(parents=True,exist_ok=True)
 def source(path):
  return subprocess.check_output(['git','show',args.source_ref+':'+path],cwd=r,text=True) if args.source_ref else (r/path).read_text()
@@ -15,9 +15,12 @@ def method(text,marker):
   elif text[i]=='}':depth-=1
   i+=1
  return text[a:i]
-b=source('src/NSByteCountFormatter.m');f=source('src/NSFileManager.m');e=source('src/NSFilesystemItemRemoveOperation.m');h=source('include/Foundation/NSByteCountFormatter.h')
+b=source('src/NSByteCountFormatter.m');f=source('src/NSFileManager.m');e=source('src/NSFilesystemItemRemoveOperation.m');h=source('include/Foundation/NSByteCountFormatter.h');io=source('src/_NSFileIO.m')
 replacements={
  'COMPARE_HELPERS':'#include "NSFileContentsEqual.h"' if '- (BOOL)contentsEqualAtPath:' in f else '',
+ 'PATH_HELPER':method(source('src/NSFileSystemRepresentation.h'),'static const char *NSFileSystemRepresentation(') if 'NSFileSystemRepresentation(path)' in f else '',
+ 'READ_METHOD':method(io,'void *_NSReadBytesFromFile('),
+ 'WRITE_METHOD':method(io,'BOOL _NSWriteBytesToFile('),
  'BYTE_ENUMS':h[h.index('typedef NS_OPTIONS'):h.index('@interface')],
  'BYTE_METHOD':method(b,'- (NSString *)stringFromByteCount:'),
  'EXISTS_METHOD':method(f,'- (BOOL)fileExistsAtPath:(NSString *)path isDirectory:'),
@@ -30,7 +33,7 @@ for key,value in replacements.items():s=s.replace(key,value)
 inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip()
 subprocess.run(['clang','-O1','-g','-fobjc-runtime=gcc','-fconstant-string-class=FixtureString','-fblocks','-fobjc-exceptions','-fexceptions','-I'+inc,'-I'+str(r/'src'),'-Wno-objc-method-access','-Wno-incomplete-implementation','-Wno-incompatible-pointer-types','-fsanitize=undefined','-fno-sanitize-recover=all',str(args.out/'fixture.m'),'-lobjc','-lm','-o',str(args.out/'fixture')],check=True)
 failed=0
-for case in (args.case or ['byte']):
+for case in (args.case or ['byte','compare','path','error','empty','io']):
  result=subprocess.run([str(args.out/'fixture'),case],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
  (args.out/(case+'.log')).write_text(result.stdout+'exit='+str(result.returncode)+'\n');print(case,result.returncode,result.stdout.strip());failed|=result.returncode!=0
 raise SystemExit(failed)

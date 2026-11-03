@@ -13,6 +13,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define UNLIKELY(x) (x)
+#define reallocf realloc
+#define NSDataReadingMappedIfSafe 1
+#define NSDataWritingAtomic 1
+#define NSDataWritingWithoutOverwriting 2
+#define NSFileReadNoPermissionError 257
+typedef unsigned long NSDataReadingOptions, NSDataWritingOptions;
+static int OSAtomicIncrement32(int *p) { return ++*p; }
 typedef unsigned long NSUInteger;
 typedef long NSInteger;
 #define NSNotFound LONG_MAX
@@ -36,10 +47,14 @@ __attribute__((objc_root_class)) @interface NSObject { Class isa; }
 + (id)new {return [[self alloc] init];}
 - (id)init {return self;} - (id)retain {return self;} - (id)autorelease {return self;} - (void)release {}
 @end
+static int pathRepresentationCalls;
 @interface NSString : NSObject
 + (id)stringWithFormat:(NSString *)fmt,...;
 + (id)from:(const char *)s;
 - (const char *)UTF8String;
+- (NSUInteger)length;
+- (BOOL)isNSString__;
+- (id)stringByAppendingFormat:(NSString *)fmt,...;
 - (const char *)fileSystemRepresentation;
 - (id)stringByAppendingString:(NSString *)s;
 @end
@@ -57,7 +72,10 @@ __attribute__((objc_root_class)) @interface NSObject { Class isa; }
  *p=0;va_end(ap);return [self from:output];
 }
 - (const char *)UTF8String {return "";}
-- (const char *)fileSystemRepresentation {return [self UTF8String];}
+- (NSUInteger)length {return strlen([self UTF8String]);}
+- (BOOL)isNSString__ {return YES;}
+- (id)stringByAppendingFormat:(NSString *)fmt,... { va_list ap;va_start(ap,fmt);char buf[2048];snprintf(buf,sizeof buf,"%s.tmp%d",[self UTF8String],va_arg(ap,int));va_end(ap);return [NSString from:buf];}
+- (const char *)fileSystemRepresentation {pathRepresentationCalls++;if(![self length]){fputs("FAIL empty public string conversion called by file I/O\n",stderr);abort();}return [self UTF8String];}
 - (id)stringByAppendingString:(NSString *)s {return [NSString stringWithFormat:@"%@%@",self,s];}
 @end
 @implementation FixtureString
@@ -66,7 +84,7 @@ __attribute__((objc_root_class)) @interface NSObject { Class isa; }
 @interface Path : FixtureString { @public const char *filesystem; }
 @end
 @implementation Path
-- (const char *)fileSystemRepresentation {return filesystem;}
+- (const char *)fileSystemRepresentation {pathRepresentationCalls++;return filesystem;}
 @end
 @interface NSArray : NSObject { id items[12]; NSUInteger n; }
 - (id)initWithObjects:(id)first,...; - (id)objectAtIndex:(NSUInteger)i; - (NSUInteger)count;
@@ -119,6 +137,7 @@ __attribute__((objc_root_class)) @interface NSObject { Class isa; }
 + (id)dictionaryWithObjects:(const id *)objects forKeys:(const id *)k count:(NSUInteger)n {NSDictionary *d=[self new];d->count=n;for(NSUInteger i=0;i<n;i++){d->keys[i]=k[i];d->values[i]=objects[i];}return d;}
 - (id)objectForKey:(id)key {for(NSUInteger i=0;i<count;i++)if(!strcmp([key UTF8String],[keys[i] UTF8String]))return values[i];return nil;}
 @end
+static NSString *NSLocalizedDescriptionKey=@"NSLocalizedDescriptionKey";
 static NSString *NSPOSIXErrorDomain=@"NSPOSIXErrorDomain",*NSCocoaErrorDomain=@"NSCocoaErrorDomain",*NSUnderlyingErrorKey=@"NSUnderlyingErrorKey",*NSFilePathErrorKey=@"NSFilePathErrorKey";
 @interface NSError : NSObject { @public NSString *domain; NSInteger code; NSDictionary *info; }
 + (id)errorWithDomain:(NSString *)d code:(NSInteger)c userInfo:(NSDictionary *)i;
@@ -126,6 +145,23 @@ static NSString *NSPOSIXErrorDomain=@"NSPOSIXErrorDomain",*NSCocoaErrorDomain=@"
 @implementation NSError
 + (id)errorWithDomain:(NSString *)d code:(NSInteger)c userInfo:(NSDictionary *)i {NSError *e=[self new];e->domain=d;e->code=c;e->info=i;return e;}
 @end
+@interface NSData : NSObject { void *storage; NSUInteger size; }
++ (id)dataWithBytesNoCopy:(void *)bytes length:(NSUInteger)n;
+- (void *)bytes; - (NSUInteger)length;
+@end
+@implementation NSData
++ (id)dataWithBytesNoCopy:(void *)bytes length:(NSUInteger)n {NSData *o=[self new];o->storage=bytes;o->size=n;return o;}
+- (void *)bytes {return storage;} - (NSUInteger)length {return size;}
+@end
+typedef NSString *CFStringRef;
+typedef long CFIndex;
+static const char *fixtureFileBytes(NSString *s) {return object_getClass(s)==[Path class] ? ((Path *)s)->filesystem : [s UTF8String];}
+static CFIndex CFStringGetMaximumSizeOfFileSystemRepresentation(CFStringRef s) {const char *b=fixtureFileBytes(s);return b ? strlen(b)+1 : 2;}
+static BOOL CFStringGetFileSystemRepresentation(CFStringRef s,char *b,CFIndex n) {const char *p=fixtureFileBytes(s);if(!p||strlen(p)>=(size_t)n)return NO;strcpy(b,p);return YES;}
+PATH_HELPER
+static NSError *NSFileReadError(int code,NSString *path) {return [NSError errorWithDomain:NSPOSIXErrorDomain code:code userInfo:nil];}
+READ_METHOD
+WRITE_METHOD
 BYTE_ENUMS
 @interface NSByteCountFormatter : NSObject { @public NSByteCountFormatterUnits _allowedUnits; NSInteger _countStyle,_formattingContext; BOOL _adaptive,_allowsNonnumericFormatting,_includesUnit,_includesCount,_includesActualByteCount,_zeroPadsFractionDigits; }
 - (NSString *)stringFromByteCount:(long long)byteCount;
@@ -141,7 +177,7 @@ COMPARE_HELPERS
 - (BOOL)contentsEqualAtPath:(NSString *)path1 andPath:(NSString *)path2;
 @end
 @implementation NSFileManager
-- (const char *)fileSystemRepresentationWithPath:(NSString *)path { return [path fileSystemRepresentation]; }
+- (const char *)fileSystemRepresentationWithPath:(NSString *)path { if(!path||![path length]) {fputs("FAIL throwing public conversion used for empty file operation\n",stderr);abort();} return [path fileSystemRepresentation]; }
 EXISTS_METHOD
 COMPARE_METHOD
 @end
@@ -189,6 +225,31 @@ int main(int argc,char **argv) {
   if(![fm fileExistsAtPath:p isDirectory:&isDir]||!isDir){assert(rmdir(fs)==0&&rmdir(directory)==0);puts("FAIL existence used UTF8String instead of filesystem representation");return 1;}
   assert([fm contentsEqualAtPath:p andPath:p]);assert(![fm contentsEqualAtPath:nil andPath:p]);
   assert(rmdir(fs)==0&&rmdir(directory)==0);puts("PASS filesystem representation: production existence and contents-comparison methods");
+ } else if(!strcmp(argv[1],"empty")) {
+  NSFileManager *fm=[NSFileManager new];BOOL isDir=YES;
+  assert(![fm fileExistsAtPath:@"" isDirectory:&isDir]);
+  assert(![fm fileExistsAtPath:nil isDirectory:NULL]);
+  assert(![fm contentsEqualAtPath:@"" andPath:@""]);
+  assert(![fm contentsEqualAtPath:@"." andPath:@""]);
+  assert(![fm contentsEqualAtPath:nil andPath:@"."]);
+  Path *invalid=[Path new];invalid->bytes="invalid";invalid->filesystem=NULL;
+  assert(![fm fileExistsAtPath:invalid isDirectory:NULL]);
+  assert(![fm contentsEqualAtPath:invalid andPath:@"."]);
+  puts("PASS empty/nil/unrepresentable paths return NO without calling throwing conversion");
+ } else if(!strcmp(argv[1],"io")) {
+  char file[]="/tmp/qv-path-io-XXXXXX";int fd=mkstemp(file);assert(fd>=0);assert(write(fd,"abc",3)==3);close(fd);
+  Path *p=[Path new];p->bytes="/missing/utf8-spelling";p->filesystem=file;
+  NSUInteger n=99;BOOL vm=NO;NSError *error=nil;
+  void *bytes=_NSReadBytesFromFile(p,0,&n,&vm,&error);assert(bytes&&n==3&&!memcmp(bytes,"abc",3));free(bytes);
+  NSData *data=[NSData dataWithBytesNoCopy:strdup("def") length:3];
+  assert(_NSWriteBytesToFile(data,p,0,&error));
+  bytes=_NSReadBytesFromFile(p,0,&n,&vm,&error);assert(bytes&&n==3&&!memcmp(bytes,"def",3));free(bytes);
+  assert(!_NSReadBytesFromFile(@"",0,&n,&vm,&error)&&n==0&&error);
+  assert(!_NSReadBytesFromFile(nil,0,&n,&vm,&error));
+  assert(!_NSWriteBytesToFile(data,@"",NSDataWritingAtomic,&error));
+  assert(pathRepresentationCalls==0);
+  assert(unlink(file)==0);
+  puts("PASS NSData read/write filesystem encoding and empty failures without defaultManager bootstrap");
  } else if(!strcmp(argv[1],"error")) {
   NSError *e=[NSFilesystemItemRemoveOperation _errorWithErrno:ENOENT atPath:@"missing"];
   expect(e->domain,"NSCocoaErrorDomain");assert(e->code==4);NSError *under=[e->info objectForKey:NSUnderlyingErrorKey];assert(under&&under->code==ENOENT);expect(under->domain,"NSPOSIXErrorDomain");
