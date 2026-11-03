@@ -38,14 +38,6 @@
     [super dealloc];
 }
 
-- (id)copyWithZone:(NSZone *)zone
-{
-    NSListFormatter *copy = [[[self class] allocWithZone:zone] init];
-    copy.locale = _locale;
-    copy.itemFormatter = _itemFormatter;
-    return copy;
-}
-
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
     if ((self = [super init])) {
