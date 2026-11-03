@@ -9,6 +9,7 @@
 #import <Foundation/NSLocale.h>
 #import <Foundation/NSString.h>
 #include <unicode/uscript.h>
+#include <unicode/uchar.h>
 
 NSString * const NSPersonNameComponentKey = @"NSPersonNameComponentKey";
 NSString * const NSPersonNameComponentGivenName = @"givenName";
@@ -24,6 +25,22 @@ static NSString *namePart(NSString *part)
     return [part stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+static UChar32 nameCharacter(NSString *string, NSUInteger index, NSUInteger *width)
+{
+    UChar32 c = [string characterAtIndex:index];
+    *width = 1;
+    if (c >= 0xd800 && c <= 0xdbff && index + 1 < [string length])
+    {
+        unichar low = [string characterAtIndex:index + 1];
+        if (low >= 0xdc00 && low <= 0xdfff)
+        {
+            c = 0x10000 + ((c - 0xd800) << 10) + low - 0xdc00;
+            *width = 2;
+        }
+    }
+    return c;
+}
+
 static UScriptCode nameScript(NSString *given, NSString *family)
 {
     UScriptCode result = USCRIPT_COMMON;
@@ -32,16 +49,9 @@ static UScriptCode nameScript(NSString *given, NSString *family)
     {
         for (NSUInteger i = 0; i < [parts[p] length]; ++i)
         {
-            UChar32 c = [parts[p] characterAtIndex:i];
-            if (c >= 0xd800 && c <= 0xdbff && i + 1 < [parts[p] length])
-            {
-                unichar low = [parts[p] characterAtIndex:i + 1];
-                if (low >= 0xdc00 && low <= 0xdfff)
-                {
-                    c = 0x10000 + ((c - 0xd800) << 10) + low - 0xdc00;
-                    ++i;
-                }
-            }
+            NSUInteger width;
+            UChar32 c = nameCharacter(parts[p], i, &width);
+            i += width - 1;
             UErrorCode error = U_ZERO_ERROR;
             UScriptCode script = uscript_getScript(c, &error);
             if (U_FAILURE(error) || script == USCRIPT_COMMON || script == USCRIPT_INHERITED)
@@ -180,19 +190,48 @@ static void appendPart(NSMutableAttributedString *result, NSString *part, NSStri
 - (NSPersonNameComponents *)personNameComponentsFromString:(NSString *)string
 {
     if (![string isKindOfClass:[NSString class]]) return nil;
-    // Parenthetical annotations are not part of a person's name.
+    // Keep name punctuation, but treat other symbols as token boundaries.
     NSMutableString *clean = [NSMutableString string];
     NSUInteger nesting = 0;
-    for (NSUInteger i = 0; i < [string length]; ++i)
+    for (NSUInteger i = 0; i < [string length];)
     {
-        unichar c = [string characterAtIndex:i];
-        if (c == '(' || c == '[') { ++nesting; continue; }
+        NSUInteger width;
+        UChar32 c = nameCharacter(string, i, &width);
+        NSRange range = NSMakeRange(i, width);
+        i += width;
+        if (c == '(' || c == '[')
+        {
+            if (!nesting) [clean appendString:@" "];
+            ++nesting;
+            continue;
+        }
         if (c == ')' || c == ']') { if (nesting) --nesting; continue; }
-        if (!nesting) [clean appendString:[string substringWithRange:NSMakeRange(i, 1)]];
+        if (nesting) continue;
+        int8_t type = u_charType(c);
+        if (u_isalpha(c) || type == U_NON_SPACING_MARK || type == U_COMBINING_SPACING_MARK
+            || type == U_ENCLOSING_MARK || type == U_DASH_PUNCTUATION
+            || c == '\'' || c == 0x2019 || c == '.')
+            [clean appendString:[string substringWithRange:range]];
+        else if (c == ',') [clean appendString:@", "];
+        else [clean appendString:@" "];
     }
     NSMutableArray *words = [NSMutableArray array];
-    for (NSString *word in [clean componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]])
-        if ([word length]) [words addObject:word];
+    NSUInteger comma = NSNotFound;
+    for (NSString *token in [clean componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]])
+    {
+        BOOL delimiter = [token hasSuffix:@","];
+        NSString *word = delimiter ? [token substringToIndex:[token length] - 1] : token;
+        BOOL hasLetter = NO;
+        for (NSUInteger i = 0; i < [word length];)
+        {
+            NSUInteger width;
+            UChar32 c = nameCharacter(word, i, &width);
+            i += width;
+            if (u_isalpha(c)) { hasLetter = YES; break; }
+        }
+        if (hasLetter) [words addObject:word];
+        if (delimiter && comma == NSNotFound && [words count]) comma = [words count] - 1;
+    }
     if (![words count]) return nil;
     NSPersonNameComponents *result = [[[NSPersonNameComponents alloc] init] autorelease];
     NSString *first = [words objectAtIndex:0];
@@ -201,6 +240,7 @@ static void appendPart(NSMutableAttributedString *result, NSString *part, NSStri
     {
         result.namePrefix = first;
         [words removeObjectAtIndex:0];
+        if (comma != NSNotFound) comma = comma ? comma - 1 : NSNotFound;
     }
     if (![words count]) return result;
     NSString *last = [words lastObject];
@@ -223,13 +263,9 @@ static void appendPart(NSMutableAttributedString *result, NSString *part, NSStri
     }
     else
     {
-        NSUInteger comma = NSNotFound;
-        for (NSUInteger i = 0; i < [words count]; ++i)
-            if ([[words objectAtIndex:i] hasSuffix:@","]) { comma = i; break; }
         if (comma != NSNotFound && comma + 1 < [words count])
         {
-            NSString *family = [[words subarrayWithRange:NSMakeRange(0, comma + 1)] componentsJoinedByString:@" "];
-            result.familyName = [family substringToIndex:[family length] - 1];
+            result.familyName = [[words subarrayWithRange:NSMakeRange(0, comma + 1)] componentsJoinedByString:@" "];
             [words removeObjectsInRange:NSMakeRange(0, comma + 1)];
             result.givenName = [words objectAtIndex:0];
             if ([words count] > 1)
@@ -238,9 +274,21 @@ static void appendPart(NSMutableAttributedString *result, NSString *part, NSStri
         else
         {
             result.givenName = first;
-            if ([words count] > 1) result.familyName = last;
-            if ([words count] > 2)
-                result.middleName = [[words subarrayWithRange:NSMakeRange(1, [words count] - 2)] componentsJoinedByString:@" "];
+            if ([words count] > 1)
+            {
+                NSUInteger familyStart = [words count] - 1;
+                // The documented Latin grammar includes compound surnames led by de.
+                for (NSUInteger i = 1; i < familyStart; ++i)
+                    if ([[[words objectAtIndex:i] lowercaseString] isEqual:@"de"])
+                    {
+                        familyStart = i;
+                        break;
+                    }
+                result.familyName = [[words subarrayWithRange:NSMakeRange(familyStart,
+                    [words count] - familyStart)] componentsJoinedByString:@" "];
+                if (familyStart > 1)
+                    result.middleName = [[words subarrayWithRange:NSMakeRange(1, familyStart - 1)] componentsJoinedByString:@" "];
+            }
         }
     }
     return result;
