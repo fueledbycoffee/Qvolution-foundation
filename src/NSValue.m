@@ -783,6 +783,8 @@ static uint8_t charHalfToAscii(uint8_t in)
 
 - (BOOL)isEqualToValue:(NSValue *)other
 {
+    if (!other)
+        return NO;
     if (strcmp([self objCType], [other objCType]) != 0)
     {
         return NO;
