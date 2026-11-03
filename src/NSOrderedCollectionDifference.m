@@ -236,8 +236,7 @@ static void *differenceBuffer(NSUInteger count, size_t size) {
             if ([change index] > [objects count] || ![change object]) return nil;
             [objects insertObject:[change object] atIndex:[change index]];
         }
-        NSOrderedSet *result = [NSOrderedSet orderedSetWithArray:objects];
-        return [result count] == [objects count] ? result : nil;
+        return [NSOrderedSet orderedSetWithArray:objects];
     } @finally {
         [objects release];
     }

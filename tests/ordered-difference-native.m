@@ -42,7 +42,21 @@ static void check(NSArray *a, NSArray *b, NSArray *removed, NSArray *inserted) {
     assert(total==[removed count]+[inserted count]);
 }
 #define THROWS(...) do{BOOL caught=NO;@try{__VA_ARGS__;}@catch(id e){caught=YES;}assert(caught);}while(0)
-int main(void) {
+static int duplicateInsertion(void) {
+    NSOrderedSet *original=[NSOrderedSet orderedSetWithArray:@[@"a",@"b"]];
+    NSOrderedCollectionChange *insert=[NSOrderedCollectionChange changeWithObject:@"b" type:NSCollectionChangeInsert index:1];
+    NSOrderedCollectionDifference *difference=[[[NSOrderedCollectionDifference alloc]initWithChanges:@[insert]]autorelease];
+    NSOrderedSet *result=[original orderedSetByApplyingDifference:difference];
+    if (!result || !same([result array],@[@"a",@"b"]) || !same([original array],@[@"a",@"b"])) {
+        puts("FAIL: applying a duplicate insertion must return the deduplicated ordered set");
+        return 1;
+    }
+    puts("PASS: duplicate insertion preserves ordered elements and the receiver");
+    return 0;
+}
+int main(int argc, const char **argv) {
+    if (argc>1 && !strcmp(argv[1],"duplicate-insertion")) return duplicateInsertion();
+    assert(duplicateInsertion()==0);
     check(@[],@[],@[],@[]);
     check(@[],@[@"a"],@[],@[@"a"]);
     check(@[@"a"],@[],@[@"a"],@[]);
