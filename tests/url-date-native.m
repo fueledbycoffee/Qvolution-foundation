@@ -115,8 +115,21 @@ BACKEND_SET(Fragment)
 @implementation NSURLComponents
 /*URL_METHODS*/
 @end
+#define NSEC_PER_MSEC 1000000
+/*COMP_VECTOR*/
 int main(int argc,char **argv) {
  assert(argc==2);
+ if(!strcmp(argv[1],"review")) {
+  NSCalendar *cal=[[NSCalendar alloc]init];NSDateComponents *c=[[NSDateComponents alloc]init];
+  [c setCalendar:cal];[c setYear:2020];[c setMonth:2];[c setDay:29];
+  [c setNanosecond:INT_MAX];
+  printf("explicit INT_MAX nanosecond: numeric=%ld valid=%d\n",[c valueForComponent:NSCalendarUnitNanosecond],[c isValidDate]);
+  [c setNanosecond:0];[c setValue:NSDateComponentUndefined forComponent:NSCalendarUnitDay];
+  printf("clear day by numeric setter: property=%ld numeric=%ld undefined=%ld\n",[c day],[c valueForComponent:NSCalendarUnitDay],(long)NSDateComponentUndefined);
+  [c setDay:INT_MAX];
+  printf("explicit INT_MAX day: property=%ld numeric=%ld\n",[c day],[c valueForComponent:NSCalendarUnitDay]);
+  return 0;
+ }
  if(!strcmp(argv[1],"url")) {
   assert(class_getInstanceMethod(objc_getClass("NSURLComponents"),sel_registerName("string")));
   NSURLComponents *c=[NSURLComponents alloc];c->_components=expected=&expected;
@@ -154,6 +167,10 @@ int main(int argc,char **argv) {
   [c setDay:INT_MAX];assert([c valueForComponent:NSCalendarUnitDay]==INT_MAX);
   [c setValue:INT_MAX forComponent:NSCalendarUnitDay];assert([c day]==INT_MAX);
   [c setDay:29];
+  NSDateComponents *empty=[[NSDateComponents alloc]init];int vector[17];char format[18];
+  assert(makeCFCalendarComponentVector(empty,vector,format)==0);
+  [empty setDay:INT_MAX];assert(makeCFCalendarComponentVector(empty,vector,format)==1 && vector[0]==INT_MAX && format[0]=='d');
+  [empty setDay:NSDateComponentUndefined];assert(makeCFCalendarComponentVector(empty,vector,format)==0);
   [c setNanosecond:999999999];assert([c isValidDate]&&[c nanosecond]==999999999);
   [c setNanosecond:1000000000];assert(![c isValidDate]);[c setNanosecond:-1];assert(![c isValidDate]);[c setNanosecond:0];
   [c setHour:24];assert(![c isValidDate]);[c setHour:0];[c setTimeZone:[NSObject alloc]];assert([c isValidDate]&&!cal->zone);

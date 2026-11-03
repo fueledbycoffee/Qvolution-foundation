@@ -27,11 +27,13 @@ storage=subprocess.check_output(['git','-C',str(cf),'show','a4571cc:NSDateCompon
 struct=storage[storage.index('typedef struct {'):storage.index('} NSDateComponentParts;')+len('} NSDateComponentParts;')]
 impl='\n'.join(method(storage,sig) for n in fields+['calendar','timeZone'] for sig in ['- (NSInteger)'+n+'\n' if n in fields else ('- (NSCalendar *)calendar' if n=='calendar' else '- (NSTimeZone *)timeZone'), '- (void)set'+n[0].upper()+n[1:]+':'])
 init=method(storage,'- (id)init')
+cfcal=subprocess.check_output(['git','-C',str(cf),'show','a4571cc:NSCalendar.m'],text=True) if (a.before or a.review_before) else (cf/'NSCalendar.m').read_text()
+vector=method(cfcal,'static int makeCFCalendarComponentVector(')
 methods='\n'.join(method(cal,s) for s in ['- (NSDate *)startOfDayForDate:', '- (NSDate *)dateByAddingUnit:'])
 comp=cal.split('@implementation NSDateComponents (NSCalendarComponents)',1)[1].rsplit('@end',1)[0] if '@implementation NSDateComponents (NSCalendarComponents)' in cal else ''
 urlmethods='\n'.join(method(url,s) for s in ['- (NSString *)percentEncodedPath','- (void)setPercentEncodedPath:', '- (NSString *)query','- (void)setQuery:', '- (NSString *)fragment','- (void)setFragment:', '- (NSString *)string'])
 s=(root/'tests/url-date-native.m').read_text()
-for k,v in {'UNITS':units,'PROPS':props,'PROPS_IMPL':impl,'STORAGE':struct,'INIT':init,'CAL_METHODS':methods,'COMP_METHODS':comp,'URL_METHODS':urlmethods}.items():s=s.replace('/*'+k+'*/',v)
+for k,v in {'UNITS':units,'PROPS':props,'PROPS_IMPL':impl,'STORAGE':struct,'INIT':init,'COMP_VECTOR':vector,'CAL_METHODS':methods,'COMP_METHODS':comp,'URL_METHODS':urlmethods}.items():s=s.replace('/*'+k+'*/',v)
 (out/'fixture.m').write_text(s)
 inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip()
 cmd=['clang','-g','-O1','-fobjc-runtime=gcc','-fobjc-exceptions','-fexceptions','-I'+inc,'-Wno-incomplete-implementation','-Wno-objc-method-access',str(out/'fixture.m'),'-lobjc','-licui18n','-licuuc','-o',str(out/'fixture')]
@@ -40,4 +42,6 @@ for group in (['url','calendar','components'] if a.group=='all' else [a.group]):
  r=subprocess.run([str(out/'fixture'),group],capture_output=True,text=True);(out/(group+'.log')).write_text(r.stdout+r.stderr)
  print(('review-before' if a.review_before else 'before' if a.before else 'after'),group,'exit',r.returncode,r.stdout.strip(),flush=True)
  assert (r.returncode!=0) if (a.before or (a.review_before and group=='components')) else (r.returncode==0)
-print('PASS: '+('baseline misses all three method groups' if a.before else 'production methods pass native regression'))
+if not a.before:
+ r=subprocess.run([str(out/'fixture'),'review'],capture_output=True,text=True);(out/'review.log').write_text(r.stdout+r.stderr);print(r.stdout,end='');assert r.returncode==0
+print('PASS: '+('baseline misses all three method groups' if a.before else 'review baseline reproduces component failure' if a.review_before else 'production methods pass native regression'))
