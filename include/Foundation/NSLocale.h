@@ -57,6 +57,14 @@ FOUNDATION_EXPORT NSString * const NSISO8601Calendar;
 - (NSString *)localeIdentifier;
 - (NSString *)languageCode;
 - (NSString *)languageIdentifier;
+@property (readonly, copy) NSString *countryCode;
+@property (readonly, copy) NSString *scriptCode;
+@property (readonly, copy) NSString *decimalSeparator;
+@property (readonly, copy) NSString *groupingSeparator;
+@property (readonly, copy) NSString *currencyCode;
+@property (readonly, copy) NSString *currencySymbol;
+@property (readonly) BOOL usesMetricSystem;
+- (NSString *)localizedStringForLanguageCode:(NSString *)languageCode;
 
 @end
 

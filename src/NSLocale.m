@@ -11,6 +11,7 @@
 #import <Foundation/NSException.h>
 #import <Foundation/NSNotification.h>
 #import <Foundation/NSString.h>
+#import <Foundation/NSNumber.h>
 
 CF_PRIVATE
 @interface NSAutoLocale : NSLocale
@@ -39,6 +40,46 @@ CF_PRIVATE
 
 - (NSString *) languageCode {
     return [self objectForKey: NSLocaleLanguageCode];
+}
+
+- (NSString *)countryCode
+{
+    return [self objectForKey:NSLocaleCountryCode];
+}
+
+- (NSString *)scriptCode
+{
+    return [self objectForKey:NSLocaleScriptCode];
+}
+
+- (NSString *)decimalSeparator
+{
+    return [self objectForKey:NSLocaleDecimalSeparator];
+}
+
+- (NSString *)groupingSeparator
+{
+    return [self objectForKey:NSLocaleGroupingSeparator];
+}
+
+- (NSString *)currencyCode
+{
+    return [self objectForKey:NSLocaleCurrencyCode];
+}
+
+- (NSString *)currencySymbol
+{
+    return [self objectForKey:NSLocaleCurrencySymbol];
+}
+
+- (BOOL)usesMetricSystem
+{
+    return [[self objectForKey:NSLocaleUsesMetricSystem] boolValue];
+}
+
+- (NSString *)localizedStringForLanguageCode:(NSString *)languageCode
+{
+    return [self displayNameForKey:NSLocaleLanguageCode value:languageCode];
 }
 
 - (NSString *)languageIdentifier {
