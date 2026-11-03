@@ -117,21 +117,25 @@ static void checkAndHookSplashScreenTransformer(Class cls)
         return;
     }
     checkAndHookSplashScreenTransformer([transformer class]);
+    NSValueTransformer *displaced = nil;
     OSSpinLockLock(&registryLock);
     @try
     {
+        NSMutableDictionary *registry = [self _transformerRegistry];
+        displaced = [[registry objectForKey:name] retain];
         if (transformer == nil)
         {
-            [[self _transformerRegistry] removeObjectForKey:name];
+            [registry removeObjectForKey:name];
         }
         else
         {
-            [[self _transformerRegistry] setObject:transformer forKey:name];
+            [registry setObject:transformer forKey:name];
         }
     }
     @finally
     {
         OSSpinLockUnlock(&registryLock);
+        [displaced release];
     }
 }
 

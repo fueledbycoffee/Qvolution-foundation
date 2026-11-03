@@ -14,6 +14,8 @@ __attribute__((objc_root_class))
 - (id)init;
 - (id)retain;
 - (id)autorelease;
+- (void)release;
+- (void)dealloc;
 @end
 @implementation NSObject
 + (id)alloc { return class_createInstance(self, 0); }
@@ -23,6 +25,8 @@ __attribute__((objc_root_class))
 - (id)init { return self; }
 - (id)retain { return self; }
 - (id)autorelease { return self; }
+- (void)release {}
+- (void)dealloc { object_dispose(self); }
 @end
 @interface NSString : NSObject { @public const char *bytes; unsigned length; }
 @end
@@ -49,6 +53,7 @@ static int registryLock;
 static void OSSpinLockLock(int *lock) { assert(!*lock && "registry lock poisoned"); *lock = 1; }
 static void OSSpinLockUnlock(int *lock) { assert(*lock); *lock = 0; }
 static BOOL throwingMutation;
+static BOOL throwingAfterMutation;
 @interface NSMutableDictionary : NSObject { @public id stored, key; }
 - (void)setObject:(id)object forKey:(id)key;
 - (void)removeObjectForKey:(id)key;
@@ -58,9 +63,17 @@ static BOOL throwingMutation;
 @implementation NSMutableDictionary
 - (void)setObject:(id)object forKey:(id)k {
     if (!object || throwingMutation) @throw [NSException new];
+    [object retain];
+    id old = stored;
     stored = object; key = k;
+    [old release];
+    if (throwingAfterMutation) @throw [NSException new];
 }
-- (void)removeObjectForKey:(id)k { if (throwingMutation) @throw [NSException new]; if (k == key) { stored = nil; key = nil; } }
+- (void)removeObjectForKey:(id)k {
+    if (throwingMutation) @throw [NSException new];
+    if (k == key) { id old = stored; stored = nil; key = nil; [old release]; }
+    if (throwingAfterMutation) @throw [NSException new];
+}
 - (id)objectForKey:(id)k { return k == key ? stored : nil; }
 - (id)allKeys { NSArray *a = [NSArray new]; a->item = key; return a; }
 @end
@@ -87,6 +100,21 @@ PRODUCTION_REGISTRY
 @interface _NSIsNilTransformer : _NSNegateBooleanTransformer @end
 @interface _NSIsNotNilTransformer : _NSNegateBooleanTransformer @end
 PRODUCTION_BOOLEANS
+
+static unsigned destroyed;
+static id expectedKey;
+@interface ReentrantTransformer : NSValueTransformer { @public unsigned refs; }
+@end
+@implementation ReentrantTransformer
+- (id)init { refs = 1; return self; }
+- (id)retain { assert(refs); ++refs; return self; }
+- (void)release { assert(refs); if (!--refs) [self dealloc]; }
+- (void)dealloc {
+    assert([NSValueTransformer valueTransformerNames]->item == expectedKey);
+    ++destroyed;
+    [super dealloc];
+}
+@end
 
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -123,7 +151,7 @@ int main(int argc, char **argv) {
                 assert([[t reverseTransformedValue:values[j]] boolValue] == expected);
             }
         }
-    } else {
+    } else if (!strcmp(argv[1], "exception")) {
         for (unsigned i = 0; i < 2; ++i) {
             BOOL raised = NO;
             throwingMutation = YES;
@@ -134,6 +162,48 @@ int main(int argc, char **argv) {
             [NSValueTransformer setValueTransformer:[NSValueTransformer new] forName:@"valid"];
             assert([NSValueTransformer valueTransformerForName:@"valid"] != nil);
         }
+    } else {
+        id name = @"lifetime";
+        ReentrantTransformer *old = [ReentrantTransformer new];
+        id replacement = [NSValueTransformer new];
+        [NSValueTransformer setValueTransformer:old forName:name];
+        [old release];
+        assert(old->refs == 1 && !destroyed);
+        if (!strcmp(argv[1], "same-transformer")) {
+            [NSValueTransformer setValueTransformer:old forName:name];
+            assert(old->refs == 1 && !destroyed && !registryLock);
+        } else if (!strcmp(argv[1], "replacement-reentry")) {
+            expectedKey = name;
+            [NSValueTransformer setValueTransformer:replacement forName:name];
+            assert(destroyed == 1 && !registryLock && registry->stored == replacement);
+        } else if (!strcmp(argv[1], "mutation-exception")) {
+            for (unsigned remove = 0; remove < 2; ++remove) {
+                BOOL raised = NO;
+                throwingMutation = YES;
+                @try { [NSValueTransformer setValueTransformer:remove ? nil : replacement forName:name]; }
+                @catch (id error) { raised = YES; }
+                throwingMutation = NO;
+                assert(raised && !registryLock && old->refs == 1 && !destroyed);
+            }
+            for (unsigned remove = 0; remove < 2; ++remove) {
+                if (remove) {
+                    old = [ReentrantTransformer new];
+                    [NSValueTransformer setValueTransformer:old forName:name];
+                    [old release];
+                }
+                expectedKey = remove ? nil : name;
+                BOOL raised = NO;
+                throwingAfterMutation = YES;
+                @try { [NSValueTransformer setValueTransformer:remove ? nil : replacement forName:name]; }
+                @catch (id error) { raised = YES; }
+                throwingAfterMutation = NO;
+                assert(raised && !registryLock && destroyed == remove + 1);
+            }
+        }
+        expectedKey = nil;
+        [NSValueTransformer setValueTransformer:nil forName:name];
+        assert(destroyed == (!strcmp(argv[1], "mutation-exception") ? 2 : 1));
+        assert(!registryLock && registry->stored == nil);
     }
     printf("value-transformer-native %s: PASS\n", argv[1]);
     return 0;

@@ -12,7 +12,8 @@ import tempfile
 root = pathlib.Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--source-ref')
-parser.add_argument('--case', choices=['registry', 'reverse', 'exception'], default='registry')
+parser.add_argument('--case', choices=['registry', 'reverse', 'exception', 'unregister-reentry',
+                    'replacement-reentry', 'mutation-exception', 'same-transformer'], default='registry')
 args = parser.parse_args()
 source = (subprocess.check_output(['git', 'show', args.source_ref + ':src/NSValueTransformer.m'], cwd=root, text=True)
           if args.source_ref else (root / 'src/NSValueTransformer.m').read_text())
