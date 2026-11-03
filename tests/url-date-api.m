@@ -82,8 +82,10 @@ int main(void) {
             assert([parts isValidDate] == dates[i][3]);
         }
         [parts setYear:2020]; [parts setMonth:2]; [parts setDay:29];
-        [parts setNanosecond:INT_MAX];
-        assert([parts valueForComponent:NSCalendarUnitNanosecond] == INT_MAX && ![parts isValidDate]);
+        if (sizeof(NSInteger) > sizeof(int)) {
+            [parts setNanosecond:INT_MAX];
+            assert([parts valueForComponent:NSCalendarUnitNanosecond] == INT_MAX && ![parts isValidDate]);
+        }
         [parts setValue:NSDateComponentUndefined forComponent:NSCalendarUnitDay];
         assert([parts day] == NSDateComponentUndefined);
         [parts setDay:NSDateComponentUndefined];

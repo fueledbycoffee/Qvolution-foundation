@@ -211,13 +211,11 @@ OBJC_PROTOCOL_IMPL_POP
         case NSCalendarUnitNanosecond: value = [self nanosecond]; break;
         default: return NSDateComponentUndefined;
     }
-    // The existing CoreFoundation cluster stores unset fields as INT_MAX.
-    return value == INT_MAX ? NSDateComponentUndefined : value;
+    return value;
 }
 
 - (void)setValue:(NSInteger)value forComponent:(NSCalendarUnit)unit
 {
-    if (value == NSDateComponentUndefined) value = INT_MAX;
     switch (unit) {
         case NSCalendarUnitEra: [self setEra:value]; break;
         case NSCalendarUnitYear: [self setYear:value]; break;
