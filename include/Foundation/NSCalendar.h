@@ -50,7 +50,8 @@ enum {
 };
 
 enum {
-    NSUndefinedDateComponent = NSIntegerMax
+    NSUndefinedDateComponent = NSIntegerMax,
+    NSDateComponentUndefined = NSUndefinedDateComponent
 };
 
 typedef NSString *NSCalendarIdentifier;
@@ -97,6 +98,8 @@ FOUNDATION_EXPORT const NSCalendarIdentifier NSCalendarIdentifierRepublicOfChina
 - (NSDate *)dateFromComponents:(NSDateComponents *)comps;
 - (NSDateComponents *)components:(NSUInteger)unitFlags fromDate:(NSDate *)date;
 - (NSInteger)component:(NSCalendarUnit)unit fromDate:(NSDate *)date;
+- (NSDate *)startOfDayForDate:(NSDate *)date;
+- (NSDate *)dateByAddingUnit:(NSCalendarUnit)unit value:(NSInteger)value toDate:(NSDate *)date options:(NSUInteger)opts;
 - (NSDate *)dateByAddingComponents:(NSDateComponents *)comps toDate:(NSDate *)date options:(NSUInteger)opts;
 - (NSDateComponents *)components:(NSUInteger)unitFlags fromDate:(NSDate *)startingDate toDate:(NSDate *)resultDate options:(NSUInteger)opts;
 
@@ -139,5 +142,11 @@ FOUNDATION_EXPORT const NSCalendarIdentifier NSCalendarIdentifierRepublicOfChina
 - (void)setYearForWeekOfYear:(NSInteger)year;
 - (void)setLeapMonth:(BOOL)leapMonth;
 - (NSDate *)date;
+- (NSInteger)nanosecond;
+- (void)setNanosecond:(NSInteger)nanosecond;
+- (NSInteger)valueForComponent:(NSCalendarUnit)unit;
+- (void)setValue:(NSInteger)value forComponent:(NSCalendarUnit)unit;
+- (BOOL)isValidDate;
+- (BOOL)isValidDateInCalendar:(NSCalendar *)calendar;
 
 @end

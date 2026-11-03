@@ -8,6 +8,7 @@
 #import "NSCalendarInternal.h"
 #import "NSObjectInternal.h"
 #import <Foundation/NSNotification.h>
+#include <limits.h>
 
 @implementation NSCalendar (NSCalendar)
 
@@ -32,6 +33,24 @@
         case NSCalendarUnitNanosecond: return [components nanosecond];
         default: return NSUndefinedDateComponent;
     }
+}
+
+- (NSDate *)startOfDayForDate:(NSDate *)date
+{
+    NSDate *start = nil;
+    NSTimeInterval interval;
+    if (![self rangeOfUnit:NSCalendarUnitDay startDate:&start interval:&interval forDate:date])
+        return nil;
+    return start;
+}
+
+- (NSDate *)dateByAddingUnit:(NSCalendarUnit)unit value:(NSInteger)value toDate:(NSDate *)date options:(NSUInteger)opts
+{
+    NSDateComponents *components = [[NSDateComponents alloc] init];
+    [components setValue:value forComponent:unit];
+    NSDate *result = [self dateByAddingComponents:components toDate:date options:opts];
+    [components release];
+    return result;
 }
 
 OBJC_PROTOCOL_IMPL_PUSH
@@ -166,6 +185,105 @@ OBJC_PROTOCOL_IMPL_POP
 {
     [cal release];
     cal = [[NSCalendar currentCalendar] retain];
+}
+
+@end
+
+@implementation NSDateComponents (NSCalendarComponents)
+
+- (NSInteger)valueForComponent:(NSCalendarUnit)unit
+{
+    NSInteger value;
+    switch (unit) {
+        case NSCalendarUnitEra: value = [self era]; break;
+        case NSCalendarUnitYear: value = [self year]; break;
+        case NSCalendarUnitMonth: value = [self month]; break;
+        case NSCalendarUnitDay: value = [self day]; break;
+        case NSCalendarUnitHour: value = [self hour]; break;
+        case NSCalendarUnitMinute: value = [self minute]; break;
+        case NSCalendarUnitSecond: value = [self second]; break;
+        case NSCalendarUnitWeekday: value = [self weekday]; break;
+        case NSCalendarUnitWeekdayOrdinal: value = [self weekdayOrdinal]; break;
+        case NSCalendarUnitQuarter: value = [self quarter]; break;
+        case NSCalendarUnitWeekOfMonth: value = [self weekOfMonth]; break;
+        case NSCalendarUnitWeekOfYear: value = [self weekOfYear]; break;
+        case NSCalendarUnitYearForWeekOfYear: value = [self yearForWeekOfYear]; break;
+        case NSCalendarUnitNanosecond: value = [self nanosecond]; break;
+        default: return NSDateComponentUndefined;
+    }
+    // The existing CoreFoundation cluster stores unset fields as INT_MAX.
+    return value == INT_MAX ? NSDateComponentUndefined : value;
+}
+
+- (void)setValue:(NSInteger)value forComponent:(NSCalendarUnit)unit
+{
+    if (value == NSDateComponentUndefined) value = INT_MAX;
+    switch (unit) {
+        case NSCalendarUnitEra: [self setEra:value]; break;
+        case NSCalendarUnitYear: [self setYear:value]; break;
+        case NSCalendarUnitMonth: [self setMonth:value]; break;
+        case NSCalendarUnitDay: [self setDay:value]; break;
+        case NSCalendarUnitHour: [self setHour:value]; break;
+        case NSCalendarUnitMinute: [self setMinute:value]; break;
+        case NSCalendarUnitSecond: [self setSecond:value]; break;
+        case NSCalendarUnitWeekday: [self setWeekday:value]; break;
+        case NSCalendarUnitWeekdayOrdinal: [self setWeekdayOrdinal:value]; break;
+        case NSCalendarUnitQuarter: [self setQuarter:value]; break;
+        case NSCalendarUnitWeekOfMonth: [self setWeekOfMonth:value]; break;
+        case NSCalendarUnitWeekOfYear: [self setWeekOfYear:value]; break;
+        case NSCalendarUnitYearForWeekOfYear: [self setYearForWeekOfYear:value]; break;
+        case NSCalendarUnitNanosecond: [self setNanosecond:value]; break;
+        default: break;
+    }
+}
+
+- (BOOL)isValidDate
+{
+    NSCalendar *calendar = [self calendar];
+    return calendar ? [self isValidDateInCalendar:calendar] : NO;
+}
+
+- (BOOL)isValidDateInCalendar:(NSCalendar *)calendar
+{
+    if (!calendar) return NO;
+    NSInteger nanosecond = [self valueForComponent:NSCalendarUnitNanosecond];
+    if (nanosecond != NSDateComponentUndefined && (nanosecond < 0 || nanosecond >= 1000000000))
+        return NO;
+
+    NSCalendarUnit units[] = {
+        NSCalendarUnitEra, NSCalendarUnitYear, NSCalendarUnitMonth, NSCalendarUnitDay,
+        NSCalendarUnitHour, NSCalendarUnitMinute, NSCalendarUnitSecond,
+        NSCalendarUnitWeekday, NSCalendarUnitWeekdayOrdinal, NSCalendarUnitQuarter,
+        NSCalendarUnitWeekOfMonth, NSCalendarUnitWeekOfYear, NSCalendarUnitYearForWeekOfYear
+    };
+    NSUInteger flags = 0;
+    for (NSUInteger i = 0; i < sizeof(units) / sizeof(units[0]); i++) {
+        NSInteger value = [self valueForComponent:units[i]];
+        if (value == NSDateComponentUndefined) continue;
+        // The CF calendar component vector contains ints; do not truncate input.
+        if (value < INT_MIN || value >= INT_MAX) return NO;
+        flags |= units[i];
+    }
+    NSCalendar *workingCalendar = [calendar copy];
+    if ([self timeZone]) [workingCalendar setTimeZone:[self timeZone]];
+    NSDateComponents *wholeSeconds = [[NSDateComponents alloc] init];
+    for (NSUInteger i = 0; i < sizeof(units) / sizeof(units[0]); i++) {
+        if (flags & units[i]) [wholeSeconds setValue:[self valueForComponent:units[i]] forComponent:units[i]];
+    }
+    [wholeSeconds setNanosecond:0];
+    NSDate *date = [workingCalendar dateFromComponents:wholeSeconds];
+    [wholeSeconds release];
+    BOOL valid = date != nil;
+    if (date) {
+        NSDateComponents *actual = [workingCalendar components:flags fromDate:date];
+        valid = actual != nil;
+        for (NSUInteger i = 0; valid && i < sizeof(units) / sizeof(units[0]); i++) {
+            if ((flags & units[i]) && [actual valueForComponent:units[i]] != [self valueForComponent:units[i]])
+                valid = NO;
+        }
+    }
+    [workingCalendar release];
+    return valid;
 }
 
 @end
