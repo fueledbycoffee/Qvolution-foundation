@@ -1,15 +1,9 @@
+// Adapted from swift-corelibs-foundation, Sources/Foundation/{Unit,NSMeasurement}.swift.
+// Copyright (c) 2014-2017 Apple Inc. and the Swift project authors.
+// Licensed under Apache License v2.0 with Runtime Library Exception.
+
 #import <Foundation/NSUnitConverter.h>
-#import <Foundation/NSMethodSignature.h>
-#import <Foundation/NSInvocation.h>
-
 @implementation NSUnitConverter
-
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    return [NSMethodSignature signatureWithObjCTypes: "v@:"];
-}
-
-- (void)forwardInvocation:(NSInvocation *)anInvocation {
-    NSLog(@"Stub called: %@ in %@", NSStringFromSelector([anInvocation selector]), [self class]);
-}
-
+- (double)baseUnitValueFromValue:(double)value { return value; }
+- (double)valueFromBaseUnitValue:(double)value { return value; }
 @end

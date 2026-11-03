@@ -178,3 +178,9 @@
 #include <AssertMacros.h>
 
 #import <Foundation/NSRelativeDateTimeFormatter.h>
+
+#import <Foundation/NSMeasurement.h>
+#import <Foundation/NSDimension.h>
+#import <Foundation/NSUnitConverterLinear.h>
+#import <Foundation/NSUnitLength.h>
+#import <Foundation/NSUnitTemperature.h>

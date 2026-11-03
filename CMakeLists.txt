@@ -283,6 +283,7 @@ set(foundation_sources
 	src/NSDimension.m
 	src/NSUnitConverter.m
 	src/NSUnitConverterLinear.m
+	src/NSUnitTemperature.m
 	src/NSUnitLength.m
 	src/NSAutoresizingMaskLayoutConstraint.m
 	src/NSContentSizeLayoutConstraint.m
