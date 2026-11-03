@@ -1713,14 +1713,15 @@ CF_INLINE Boolean isALineSeparatorTypeCharacter(UniChar ch, Boolean includeLineE
     NSUInteger length = [self length];
     CFStringEncoding enc = CFStringConvertNSStringEncodingToEncoding(encoding);
     CFIndex byteLength = 0;
-    CFIndex converted = __CFStringEncodeByteStream((CFStringRef)self, 0, length, false, enc, lossy ? '?' : 0, NULL, 0, &byteLength);
+    char lossByte = lossy ? (encoding == NSASCIIStringEncoding ? (char)0xFF : '?') : 0;
+    CFIndex converted = __CFStringEncodeByteStream((CFStringRef)self, 0, length, false, enc, lossByte, NULL, 0, &byteLength);
     if (converted != length)
     {
         return nil;
     }
 
     NSMutableData *data = [[NSMutableData alloc] initWithLength:byteLength];
-    converted = __CFStringEncodeByteStream((CFStringRef)self, 0, length, false, enc, lossy ? '?' : 0, [data mutableBytes], byteLength, NULL);
+    converted = __CFStringEncodeByteStream((CFStringRef)self, 0, length, false, enc, lossByte, [data mutableBytes], byteLength, NULL);
     if (converted != length)
     {
         [NSException raise:NSInternalInconsistencyException format:@"Unable to convert all of the characters expected"];
