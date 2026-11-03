@@ -1,6 +1,6 @@
 # Foundation differential regression controls
 
-Run `python3 tests/run-foundation2-native.py --core-source ../corefoundation --out ../native/after` under `dashboard/qv-slot build` from the Foundation clone. All nine sections must pass.
+Run `python3 tests/run-foundation2-native.py --core-source ../corefoundation --out ../native/round2-after` under `dashboard/qv-slot build` from the Foundation clone. All ten sections must pass. Native tests require `pkg-config icu-i18n` and its development headers/libraries.
 
 Use `--foundation-revision a2400ec --core-revision f51d51d --out ../native/before --expect-fail` for the pre-change baseline: all nine sections fail on behavioral assertions. The GMT abbreviation addition also fails against `--core-revision d69b2ea --sections zone --out ../native/before-gmt --expect-fail`.
 
@@ -8,4 +8,6 @@ The fixture compiles unchanged production method regions against storage and CF 
 
 The lane's `prepare-build.py` snapshots unchanged base objects and generates a small Ninja graph from Stage41g's compiler/link commands. It compiles changed fat objects and links complete i386 and x86_64 Foundation/CoreFoundation payloads. Native `ninja -C ../build -j6` is run inside `qv-slot build`; `ninja -C ../build -n` must report no work. The lane's `run-qvdiff.sh` prepares a private hardlink-copy runtime with copy-on-replacement payloads. It defaults to a full preflight dry run; `QV_RUN=1` enables the supplied eight-check Mac/Darling batch.
 
-Timezone name/equality, dated lookup and the fixed GMT zone's UTC spelling are covered. The oracle's twelve regional UTC±offset abbreviation strings remain unresolved locale presentation. The lane's `ORACLE-QUESTIONS.md` has an authored public API probe; no localized strings are inferred from implementation internals or hardcoded for those regions.
+Timezone tests use actual ICU calendars and localized names behind the production Objective-C method. They cover all twelve supplied French abbreviation observations, date-dependent standard/daylight selection, locale changes on the same zone, failure propagation, UTC construction and fixed GMT spelling. `--core-revision 265996f --sections zone zone_locale --out ../native/round2-before --expect-fail` demonstrates both sections fail before the locale fix. The former synthetic CET/CEST date controls now use real winter/summer dates and explicit English localized names; date-sensitive assertions remain exact.
+
+Rung 1: https://raw.githubusercontent.com/swiftlang/swift-foundation/main/Sources/FoundationInternationalization/TimeZone/TimeZone_ICU.swift selects Locale.current and short standard/daylight display names. Rung 4: the lane's oracle/20261103T114240Z-checks/mac/NSTimeZone.txt supplies the twelve French expected values. Native ICU is a boundary control, not proof of Darling's shipped ICU integration; run the unchanged eight-check guest batch for that. The lane runner measures the Mac's current locale and verifies the guest's locale before comparing those checks.

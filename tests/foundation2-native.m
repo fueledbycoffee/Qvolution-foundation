@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <unicode/ucal.h>
 typedef unsigned long NSUInteger;
 typedef long NSInteger, CFIndex;
 typedef double NSTimeInterval;
@@ -256,13 +257,43 @@ static NSString *CFTimeZoneCopyAbbreviation(CFTimeZoneRef t,double d) { return d
 static void CFDictionaryGetKeysAndValues(void *d,const void **k,const void **v) { for(int i=0;i<48;i++){k[i]=@"CET";v[i]=@"Europe/Paris";} }
 static id CFTimeZoneCreateWithName(void *a,CFStringRef n,BOOL abbrev) { return n; }
 static id CFTimeZoneCreateWithTimeIntervalFromGMT(void *a,double offset) { return @"GMT"; }
+typedef enum { NSTimeZoneNameStyleShortStandard=1, NSTimeZoneNameStyleShortDaylightSaving=3 } NSTimeZoneNameStyle;
+@interface NSLocale : NSObject { @public const char *identifier; }
++ (id)currentLocale;
+@end
+static NSLocale *currentLocale;
+@implementation NSLocale
++ (id)currentLocale { return currentLocale; }
+@end
 @interface Zone : NSObject { @public NSString *zoneName; }
 + (id)abbreviationDictionary; - (NSString *)name;
+- (BOOL)isDaylightSavingTimeForDate:(NSDate *)date;
+- (NSString *)localizedName:(NSTimeZoneNameStyle)style locale:(NSLocale *)locale;
 @end
+static BOOL failZoneLocalization;
+static UCalendar *zoneCalendar(Zone *z) {
+ UniChar name[128];NSString *s=[z name];assert([s length]<128);
+ for(NSUInteger i=0;i<[s length];i++)name[i]=[s characterAtIndex:i];
+ UErrorCode status=U_ZERO_ERROR;
+ UCalendar *c=ucal_open(name,[s length],"en_US",UCAL_GREGORIAN,&status);
+ assert(U_SUCCESS(status)&&c);return c;
+}
 #define NSTimeZone Zone
 @implementation Zone
 + (id)abbreviationDictionary { return nil; }
 - (NSString *)name { return zoneName?:@"Europe/Paris"; }
+- (BOOL)isDaylightSavingTimeForDate:(NSDate *)date {
+ UCalendar *c=zoneCalendar(self);UErrorCode status=U_ZERO_ERROR;
+ ucal_setMillis(c,([date timeIntervalSinceReferenceDate]+978307200.0)*1000.0,&status);
+ BOOL dst=ucal_inDaylightTime(c,&status);ucal_close(c);assert(U_SUCCESS(status));return dst;
+}
+- (NSString *)localizedName:(NSTimeZoneNameStyle)style locale:(NSLocale *)locale {
+ if(failZoneLocalization)return nil;
+ UCalendar *c=zoneCalendar(self);UErrorCode status=U_ZERO_ERROR;UniChar text[128];
+ int32_t n=ucal_getTimeZoneDisplayName(c,(UCalendarDisplayNameType)style,locale->identifier,text,128,&status);
+ ucal_close(c);assert(U_SUCCESS(status)&&n<128);
+ return [NSString stringWithCharacters:text length:n];
+}
 #include "zone.inc"
 @end
 #undef NSTimeZone
@@ -321,9 +352,25 @@ static void test_stream(void) {
  id s=[Input alloc];uint8_t *bytes=(void *)1;NSUInteger len=99;assert(![s getBuffer:&bytes length:&len]);assert(!streamConsumed&&bytes==NULL&&len==0);
 }
 static void test_zone(void) {
- id z=[Zone alloc];NSDate *d=[NSDate alloc];d->time=1;assert([[z abbreviationForDate:d] isEqualToString:@"CEST"]);d->time=0;assert([[z abbreviationForDate:d] isEqualToString:@"CET"]);
+ currentLocale=[NSLocale alloc];currentLocale->identifier="en_US";
+ id z=[Zone alloc];NSDate *d=[NSDate alloc];d->time=1625097600.0-978307200.0;assert([[z abbreviationForDate:d] isEqualToString:@"GMT+2"]);d->time=1609459200.0-978307200.0;assert([[z abbreviationForDate:d] isEqualToString:@"GMT+1"]);
  assert([[z initWithName:@"UTC"] isEqualToString:@"GMT"]);
  ((Zone *)z)->zoneName=@"GMT";assert([[z abbreviationForDate:d] isEqualToString:@"UTC"]);
+}
+static void test_zone_locale(void) {
+ currentLocale=[NSLocale alloc];currentLocale->identifier="fr_FR";
+ NSString *names[]={@"Europe/Paris",@"America/New_York",@"Asia/Kolkata",@"Australia/Sydney"};
+ double dates[]={0,1609459200,1625097600};
+ NSString *expected[][3]={{@"UTC+1",@"UTC+1",@"UTC+2"},{@"UTC−5",@"UTC−5",@"UTC−4"},{@"UTC+5:30",@"UTC+5:30",@"UTC+5:30"},{@"UTC+10",@"UTC+11",@"UTC+10"}};
+ Zone *z=[Zone alloc];NSDate *d=[NSDate alloc];
+ for(int n=0;n<4;n++){z->zoneName=names[n];for(int t=0;t<3;t++){
+  d->time=dates[t]-978307200.0;assert([[z abbreviationForDate:d] isEqualToString:expected[n][t]]);
+ }}
+ z->zoneName=@"America/New_York";d->time=1609459200.0-978307200.0;
+ currentLocale->identifier="en_US";assert([[z abbreviationForDate:d] isEqualToString:@"EST"]);
+ d->time=1625097600.0-978307200.0;assert([[z abbreviationForDate:d] isEqualToString:@"EDT"]);
+ currentLocale->identifier="fr_FR";assert([[z abbreviationForDate:d] isEqualToString:@"UTC−4"]);
+ failZoneLocalization=YES;assert([z abbreviationForDate:d]==nil);failZoneLocalization=NO;
 }
 static void test_notification(void) {
  Center *c=[Center alloc];pthread_mutex_init(&c->_observersLock,NULL);c->_observers=[NSMutableArray alloc];id owner=[NSObject alloc],sender=[NSObject alloc];
@@ -334,6 +381,6 @@ static void test_notification(void) {
 }
 int main(int argc,char **argv) {
  [NSString class];assert(argc==2);
- if(!strcmp(argv[1],"undo"))test_undo();else if(!strcmp(argv[1],"hash"))test_hash();else if(!strcmp(argv[1],"paths"))test_paths();else if(!strcmp(argv[1],"defaults"))test_defaults();else if(!strcmp(argv[1],"encoding"))test_encoding();else if(!strcmp(argv[1],"operation"))test_operation();else if(!strcmp(argv[1],"stream"))test_stream();else if(!strcmp(argv[1],"zone"))test_zone();else if(!strcmp(argv[1],"notification"))test_notification();else abort();
+ if(!strcmp(argv[1],"undo"))test_undo();else if(!strcmp(argv[1],"hash"))test_hash();else if(!strcmp(argv[1],"paths"))test_paths();else if(!strcmp(argv[1],"defaults"))test_defaults();else if(!strcmp(argv[1],"encoding"))test_encoding();else if(!strcmp(argv[1],"operation"))test_operation();else if(!strcmp(argv[1],"stream"))test_stream();else if(!strcmp(argv[1],"zone"))test_zone();else if(!strcmp(argv[1],"zone_locale"))test_zone_locale();else if(!strcmp(argv[1],"notification"))test_notification();else abort();
  printf("PASS native %s\n",argv[1]);return 0;
 }
