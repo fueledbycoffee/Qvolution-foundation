@@ -76,12 +76,17 @@
 
 - (NSString *)lastPathComponent
 {
-    if ([self length] == 0)
-    {
-        return @"";
-    }
-    
-    return [[self pathComponents] lastObject];
+    NSUInteger end = [self length];
+    while (end > 1 && [self characterAtIndex:end - 1] == PATH_SEP)
+        --end;
+
+    NSUInteger start = end;
+    while (start > 0 && [self characterAtIndex:start - 1] != PATH_SEP)
+        --start;
+
+    if (start == end && end > 0)
+        return NSPathSep;
+    return [self substringWithRange:NSMakeRange(start, end - start)];
 }
 
 - (NSString *)stringByDeletingLastPathComponent
@@ -125,48 +130,7 @@
 
 - (NSString *)stringByAppendingPathComponent:(NSString *)str
 {
-    NSString *first;
-    NSString *second;
-    NSString *result;
-    NSUInteger length = [self length];
-
-    // Remove trailing '/'s from self (except one in position zero)
-    NSInteger index = length - 1;
-    while (index >= 1 && [self characterAtIndex:index] == PATH_SEP) index--;
-    first = [self substringToIndex:index + 1];
-
-    // Remove leading '/'s from str
-    NSInteger appendLength = [str length];
-    index = 0;
-    while (index < appendLength && [str characterAtIndex:index] == PATH_SEP) index++;
-    if (index > 0 && length == 0)
-    {
-        // Keep a PATH_SEP when appending to empty string
-        index--;
-    }
-    second = [str substringWithRange:NSMakeRange(index, appendLength - index)];
-
-    // Generate first/second
-    if ([first length] == 0)
-    {
-        result = second;  // No '/'
-    }
-    else if ([first length] == 1 && [first characterAtIndex:0] == PATH_SEP)
-    {
-        result = [NSString stringWithFormat:@"%c%@", PATH_SEP, second]; // Keep '/'
-    }
-    else
-    {
-        result = [NSString stringWithFormat:@"%@%c%@", first, PATH_SEP, second];
-    }
-
-    // Remove trailing '/'s from result
-    length = [result length];
-    index = length - 1;
-    while (index >= 1 && [result characterAtIndex:index] == PATH_SEP) index--;
-    result = [result substringToIndex:index + 1];
-
-    return result;
+    return [NSPathStore2 pathWithComponents:@[self, str]];
 }
 
 - (NSString *)pathExtension
