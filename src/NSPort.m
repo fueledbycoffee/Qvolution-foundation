@@ -317,7 +317,8 @@ static void _NSPortDeathNotify(CFMachPortRef port, void *info) {
             &context,
             &shouldFreeInfo
         );
-        if (shouldFreeInfo || self == nil) {
+        // CF can return NULL after adopting the context; only this flag controls cleanup.
+        if (shouldFreeInfo) {
             free(context.info);
         }
         if (self == nil) {
