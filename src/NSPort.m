@@ -239,8 +239,10 @@ static void __NSFireMachPort(CFMachPortRef port, void *msg, CFIndex size, void *
         // mach_msg_descriptor_t descriptors[];
     } *message = msg;
 
-    NSMachPort *receivePort = (NSMachPort *) [NSMachPort portWithMachPort: message->header.msgh_local_port];
-    NSMachPort *sendPort = (NSMachPort *) [NSMachPort portWithMachPort: message->header.msgh_remote_port];
+    // A message sent without a reply port carries MACH_PORT_NULL: its sendPort is nil.
+    mach_port_t local = message->header.msgh_local_port, remote = message->header.msgh_remote_port;
+    NSMachPort *receivePort = local != MACH_PORT_NULL ? (NSMachPort *) [NSMachPort portWithMachPort: local] : nil;
+    NSMachPort *sendPort = remote != MACH_PORT_NULL ? (NSMachPort *) [NSMachPort portWithMachPort: remote] : nil;
     uint32_t msgid = message->header.msgh_id;
 
     NSUInteger count = message->body.msgh_descriptor_count;
@@ -315,8 +317,11 @@ static void _NSPortDeathNotify(CFMachPortRef port, void *info) {
             &context,
             &shouldFreeInfo
         );
-        if (shouldFreeInfo) {
+        if (shouldFreeInfo || self == nil) {
             free(context.info);
+        }
+        if (self == nil) {
+            return nil; // no port (MACH_PORT_NULL or a dead name)
         }
         CFMachPortSetInvalidationCallBack((CFMachPortRef) self, _NSPortDeathNotify);
     }
