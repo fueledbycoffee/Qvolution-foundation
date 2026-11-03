@@ -256,13 +256,13 @@ static NSString *CFTimeZoneCopyAbbreviation(CFTimeZoneRef t,double d) { return d
 static void CFDictionaryGetKeysAndValues(void *d,const void **k,const void **v) { for(int i=0;i<48;i++){k[i]=@"CET";v[i]=@"Europe/Paris";} }
 static id CFTimeZoneCreateWithName(void *a,CFStringRef n,BOOL abbrev) { return n; }
 static id CFTimeZoneCreateWithTimeIntervalFromGMT(void *a,double offset) { return @"GMT"; }
-@interface Zone : NSObject
+@interface Zone : NSObject { @public NSString *zoneName; }
 + (id)abbreviationDictionary; - (NSString *)name;
 @end
 #define NSTimeZone Zone
 @implementation Zone
 + (id)abbreviationDictionary { return nil; }
-- (NSString *)name { return @"Europe/Paris"; }
+- (NSString *)name { return zoneName?:@"Europe/Paris"; }
 #include "zone.inc"
 @end
 #undef NSTimeZone
@@ -323,6 +323,7 @@ static void test_stream(void) {
 static void test_zone(void) {
  id z=[Zone alloc];NSDate *d=[NSDate alloc];d->time=1;assert([[z abbreviationForDate:d] isEqualToString:@"CEST"]);d->time=0;assert([[z abbreviationForDate:d] isEqualToString:@"CET"]);
  assert([[z initWithName:@"UTC"] isEqualToString:@"GMT"]);
+ ((Zone *)z)->zoneName=@"GMT";assert([[z abbreviationForDate:d] isEqualToString:@"UTC"]);
 }
 static void test_notification(void) {
  Center *c=[Center alloc];pthread_mutex_init(&c->_observersLock,NULL);c->_observers=[NSMutableArray alloc];id owner=[NSObject alloc],sender=[NSObject alloc];
