@@ -144,6 +144,65 @@ static void *differenceBuffer(NSUInteger count, size_t size) {
     return buffer;
 }
 
+/* Hirschberg reconstruction reuses two rows across sequential subproblems. */
+static void keepEquivalentObjects(NSOrderedSet *old, NSOrderedSet *new,
+    NSUInteger oldStart, NSUInteger oldEnd, NSUInteger newStart, NSUInteger newEnd,
+    BOOL (^equivalent)(id, id), BOOL *oldKept, BOOL *newKept,
+    NSUInteger *forward, NSUInteger *backward) {
+    while (oldStart < oldEnd && newStart < newEnd &&
+        equivalent([old objectAtIndex:oldStart], [new objectAtIndex:newStart])) {
+        oldKept[oldStart++] = YES;
+        newKept[newStart++] = YES;
+    }
+    while (oldStart < oldEnd && newStart < newEnd &&
+        equivalent([old objectAtIndex:oldEnd - 1], [new objectAtIndex:newEnd - 1])) {
+        oldKept[--oldEnd] = YES;
+        newKept[--newEnd] = YES;
+    }
+    if (oldStart == oldEnd || newStart == newEnd) return;
+    if (oldEnd - oldStart == 1) {
+        for (NSUInteger j = newStart; j < newEnd; j++) {
+            if (equivalent([old objectAtIndex:oldStart], [new objectAtIndex:j])) {
+                oldKept[oldStart] = newKept[j] = YES;
+                break;
+            }
+        }
+        return;
+    }
+    NSUInteger width = newEnd - newStart, middle = oldStart + (oldEnd - oldStart) / 2;
+    for (NSUInteger j = 0; j <= width; j++) forward[j] = backward[j] = 0;
+    for (NSUInteger i = oldStart; i < middle; i++) {
+        NSUInteger diagonal = 0;
+        for (NSUInteger j = 1; j <= width; j++) {
+            NSUInteger above = forward[j];
+            if (equivalent([old objectAtIndex:i], [new objectAtIndex:newStart + j - 1]))
+                forward[j] = diagonal + 1;
+            else if (forward[j - 1] > above) forward[j] = forward[j - 1];
+            diagonal = above;
+        }
+    }
+    for (NSUInteger i = oldEnd; i > middle; i--) {
+        NSUInteger diagonal = 0;
+        for (NSUInteger j = width; j > 0; j--) {
+            NSUInteger below = backward[j - 1];
+            if (equivalent([old objectAtIndex:i - 1], [new objectAtIndex:newStart + j - 1]))
+                backward[j - 1] = diagonal + 1;
+            else if (backward[j] > below) backward[j - 1] = backward[j];
+            diagonal = below;
+        }
+    }
+    NSUInteger split = 0, longest = 0;
+    for (NSUInteger j = 0; j <= width; j++) {
+        NSUInteger length = forward[j] + backward[j];
+        if (length > longest) { longest = length; split = j; }
+    }
+    if (!longest) return;
+    keepEquivalentObjects(old, new, oldStart, middle, newStart, newStart + split,
+        equivalent, oldKept, newKept, forward, backward);
+    keepEquivalentObjects(old, new, middle, oldEnd, newStart + split, newEnd,
+        equivalent, oldKept, newKept, forward, backward);
+}
+
 @implementation NSOrderedSet (NSOrderedCollectionDifference)
 - (NSOrderedCollectionDifference *)differenceFromOrderedSet:(NSOrderedSet *)other {
     return [self differenceFromOrderedSet:other withOptions:0];
@@ -156,7 +215,7 @@ static void *differenceBuffer(NSUInteger count, size_t size) {
         [NSException raise:NSInvalidArgumentException format:@"Move inference cannot use custom equivalence"];
     NSUInteger n = [other count], m = [self count];
     BOOL *oldKept = NULL, *newKept = NULL;
-    NSUInteger *tails = NULL, *previous = NULL, *positions = NULL, *lengths = NULL;
+    NSUInteger *tails = NULL, *previous = NULL, *positions = NULL, *forward = NULL, *backward = NULL;
     @try {
         oldKept = differenceBuffer(n, sizeof(BOOL));
         newKept = differenceBuffer(m, sizeof(BOOL));
@@ -184,24 +243,11 @@ static void *differenceBuffer(NSUInteger count, size_t size) {
                 newKept[positions[i]] = YES;
             }
         } else {
-            if (n == NSUIntegerMax || m == NSUIntegerMax || n + 1 > NSUIntegerMax / (m + 1))
+            if (m == NSUIntegerMax)
                 [NSException raise:NSMallocException format:@"Ordered collection difference is too large"];
-            NSUInteger width = m + 1;
-            lengths = differenceBuffer((n + 1) * width, sizeof(NSUInteger));
-            for (NSUInteger i = n; i > 0; i--) {
-                for (NSUInteger j = m; j > 0; j--) {
-                    NSUInteger a = lengths[i * width + j - 1], b = lengths[(i - 1) * width + j];
-                    lengths[(i - 1) * width + j - 1] = block([other objectAtIndex:i - 1], [self objectAtIndex:j - 1]) ? 1 + lengths[i * width + j] : (a > b ? a : b);
-                }
-            }
-            NSUInteger i = 0, j = 0;
-            while (i < n && j < m) {
-                if (block([other objectAtIndex:i], [self objectAtIndex:j])) {
-                    oldKept[i++] = YES;
-                    newKept[j++] = YES;
-                } else if (lengths[(i + 1) * width + j] >= lengths[i * width + j + 1]) i++;
-                else j++;
-            }
+            forward = differenceBuffer(m + 1, sizeof(NSUInteger));
+            backward = differenceBuffer(m + 1, sizeof(NSUInteger));
+            keepEquivalentObjects(other, self, 0, n, 0, m, block, oldKept, newKept, forward, backward);
         }
         NSMutableArray *changes = [NSMutableArray array];
         for (NSUInteger type = 0; type < 2; type++) {
@@ -223,23 +269,36 @@ static void *differenceBuffer(NSUInteger count, size_t size) {
         }
         return [[[NSOrderedCollectionDifference alloc] initWithChanges:changes] autorelease];
     } @finally {
-        free(oldKept); free(newKept); free(tails); free(previous); free(positions); free(lengths);
+        free(oldKept); free(newKept); free(tails); free(previous); free(positions); free(forward); free(backward);
     }
 }
 - (NSOrderedSet *)orderedSetByApplyingDifference:(NSOrderedCollectionDifference *)difference {
-    NSMutableArray *objects = [[self array] mutableCopy];
-    @try {
-        for (NSOrderedCollectionChange *change in [[difference removals] reverseObjectEnumerator]) {
-            if ([change index] >= [objects count]) return nil;
-            [objects removeObjectAtIndex:[change index]];
-        }
-        for (NSOrderedCollectionChange *change in [difference insertions]) {
-            if ([change index] > [objects count] || ![change object]) return nil;
-            [objects insertObject:[change object] atIndex:[change index]];
-        }
-        return [NSOrderedSet orderedSetWithArray:objects];
-    } @finally {
-        [objects release];
+    NSArray *removals = [difference removals], *insertions = [difference insertions];
+    NSUInteger count = [self count], removed = [removals count], inserted = [insertions count];
+    if (removed > count) return nil;
+    for (NSOrderedCollectionChange *change in removals)
+        if ([change index] >= count) return nil;
+    NSUInteger remaining = count - removed;
+    if (inserted > NSUIntegerMax - remaining) return nil;
+    for (NSUInteger i = 0; i < inserted; i++) {
+        NSOrderedCollectionChange *change = [insertions objectAtIndex:i];
+        if ([change index] > remaining + i || ![change object]) return nil;
     }
+    NSMutableArray *objects = [NSMutableArray array];
+    NSUInteger source = 0, removal = 0, insertion = 0;
+    for (NSUInteger target = 0; target < remaining + inserted; target++) {
+        NSOrderedCollectionChange *change = insertion < inserted ? [insertions objectAtIndex:insertion] : nil;
+        if (change && [change index] == target) {
+            [objects addObject:[change object]];
+            insertion++;
+        } else {
+            while (removal < removed && [[removals objectAtIndex:removal] index] == source) {
+                source++;
+                removal++;
+            }
+            [objects addObject:[self objectAtIndex:source++]];
+        }
+    }
+    return [NSOrderedSet orderedSetWithArray:objects];
 }
 @end

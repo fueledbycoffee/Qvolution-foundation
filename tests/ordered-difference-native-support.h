@@ -95,11 +95,12 @@ __attribute__((objc_root_class))
 - (id)reverseObjectEnumerator { NSMutableArray *r=[NSMutableArray array];for(NSUInteger i=size;i;i--)[r addObject:storage[i-1]];return r; }
 - (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)s objects:(id *)buffer count:(NSUInteger)n { if(s->state>=size)return 0;NSUInteger left=size-s->state;n=n<left?n:left;s->itemsPtr=storage+s->state;s->mutationsPtr=&s->extra[0];s->state+=n;return n; }
 @end
+static NSUInteger fixtureShiftedElements;
 @implementation NSMutableArray
 - (void)addObject:(id)o { assert(o);storage=realloc(storage,(size+1)*sizeof(id));storage[size++]=o; }
 - (void)addObjectsFromArray:(NSArray *)a { for(id o in a)[self addObject:o]; }
-- (void)removeObjectAtIndex:(NSUInteger)i { assert(i<size);memmove(storage+i,storage+i+1,(size-i-1)*sizeof(id));size--; }
-- (void)insertObject:(id)o atIndex:(NSUInteger)i { assert(o&&i<=size);storage=realloc(storage,(size+1)*sizeof(id));memmove(storage+i+1,storage+i,(size-i)*sizeof(id));storage[i]=o;size++; }
+- (void)removeObjectAtIndex:(NSUInteger)i { assert(i<size);fixtureShiftedElements+=size-i-1;memmove(storage+i,storage+i+1,(size-i-1)*sizeof(id));size--; }
+- (void)insertObject:(id)o atIndex:(NSUInteger)i { assert(o&&i<=size);fixtureShiftedElements+=size-i;storage=realloc(storage,(size+1)*sizeof(id));memmove(storage+i+1,storage+i,(size-i)*sizeof(id));storage[i]=o;size++; }
 @end
 @interface NSIndexSet : NSObject { @public NSUInteger *indexes,n; }
 + (id)indexSetWithIndex:(NSUInteger)i;

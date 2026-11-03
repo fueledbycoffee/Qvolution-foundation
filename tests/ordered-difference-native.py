@@ -18,7 +18,11 @@ inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip(
 graph=['rule cc','  command = $cmd']
 baseline=None if not args.baseline else re.sub(r'^#(?:import|include) <Foundation/[^>]+>\n','',subprocess.check_output(['git','-C',str(root),'show',args.baseline+':src/NSOrderedCollectionDifference.m'],text=True),flags=re.M)
 for name,body in [('before',baseline if args.baseline else '#define BASELINE\n'),('after',production)]:
- src=out/(name+'.m');exe=out/name;src.write_text(header+body+test)
+ src=out/(name+'.m');exe=out/name;src.write_text(header+'''
+static size_t fixtureDifferenceBytes;
+static void *fixtureDifferenceCalloc(size_t n,size_t size) { fixtureDifferenceBytes+=n*size;return calloc(n,size); }
+#define calloc fixtureDifferenceCalloc
+'''+body+'\n#undef calloc\n'+test)
  cmd=['clang','-g','-O1','-fblocks','-fobjc-exceptions','-fexceptions','-fconstant-string-class=FixtureString','-I'+inc,'-Wno-objc-method-access','-Wno-incomplete-implementation','-fsanitize=undefined','-fno-sanitize-recover=all',str(src),'-lobjc','-o',str(exe)]
  graph+=['build '+str(exe)+': cc '+str(src),'  cmd = '+shlex.join(cmd)]
 (out/'build.ninja').write_text('\n'.join(graph)+'\n')

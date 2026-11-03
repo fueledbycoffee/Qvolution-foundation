@@ -3,7 +3,6 @@
 
 @class NSIndexSet;
 
-/* GUESS (rung 6): numeric option bits await the fx-fnd2-5 SDK probe. */
 typedef NS_OPTIONS(NSUInteger, NSOrderedCollectionDifferenceCalculationOptions) {
     NSOrderedCollectionDifferenceCalculationOmitInsertedObjects = 1 << 0,
     NSOrderedCollectionDifferenceCalculationOmitRemovedObjects = 1 << 1,
