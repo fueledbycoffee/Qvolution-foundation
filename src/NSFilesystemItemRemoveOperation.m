@@ -13,7 +13,6 @@
 #import <stdlib.h>
 #import <stdio.h>
 #import <Foundation/NSError.h>
-#import <Foundation/FoundationErrors.h>
 
 @implementation NSFilesystemItemRemoveOperation
 
@@ -31,14 +30,7 @@
             NSFilePathErrorKey: path
         };
     }
-    NSError *underlying = [NSError errorWithDomain:NSPOSIXErrorDomain code:err userInfo:info];
-    if (err == ENOENT)
-    {
-        NSDictionary *cocoaInfo = path == nil ? @{NSUnderlyingErrorKey: underlying} :
-            @{NSFilePathErrorKey: path, NSUnderlyingErrorKey: underlying};
-        return [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileNoSuchFileError userInfo:cocoaInfo];
-    }
-    return underlying;
+    return [NSError errorWithDomain:NSPOSIXErrorDomain code:err userInfo:info];
 }
 
 - (id)initWithPath:(NSString *)path

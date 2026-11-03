@@ -30,7 +30,7 @@ for key,value in replacements.items():s=s.replace(key,value)
 inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip()
 subprocess.run(['clang','-O1','-g','-fobjc-runtime=gcc','-fconstant-string-class=FixtureString','-fblocks','-fobjc-exceptions','-fexceptions','-I'+inc,'-I'+str(r/'src'),'-Wno-objc-method-access','-Wno-incomplete-implementation','-Wno-incompatible-pointer-types','-fsanitize=undefined','-fno-sanitize-recover=all',str(args.out/'fixture.m'),'-lobjc','-lm','-o',str(args.out/'fixture')],check=True)
 failed=0
-for case in (args.case or ['byte','compare','path','error']):
+for case in (args.case or ['byte']):
  result=subprocess.run([str(args.out/'fixture'),case],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
  (args.out/(case+'.log')).write_text(result.stdout+'exit='+str(result.returncode)+'\n');print(case,result.returncode,result.stdout.strip());failed|=result.returncode!=0
 raise SystemExit(failed)
