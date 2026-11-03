@@ -409,48 +409,72 @@ static void *__NSThread__main__(void *context)
     }
 }
 
+// Queued performs run in the order they were queued among those eligible in the current
+// run loop mode (Apple, NSObject performSelectorOnMainThread:withObject:waitUntilDone:modes:).
+// Every queued perform has one version-0 source, added to each of its modes. Whichever source
+// fires performs the oldest queued perform whose source is in the current mode; if that was
+// another perform, the fired source is signalled again so its own perform still runs.
 static void __NSThreadInfoPerformer(void *info)
 {
-    _NSThreadPerformInfo *performInfo = (_NSThreadPerformInfo *)info;
-    @autoreleasepool {
-        NSThread *t = [NSThread currentThread];
-        [performInfo->target performSelector:performInfo->selector withObject:performInfo->argument];
-        if (performInfo->waiter) // this check is to ensure that the signaled variable will not be stale (without interfering with a potentially dead object for the waiter)
+    _NSThreadPerformInfo *fired = (_NSThreadPerformInfo *)info;
+    NSThread *t = [NSThread currentThread];
+    CFRunLoopRef rl = CFRunLoopGetCurrent();
+    CFStringRef mode = CFRunLoopCopyCurrentMode(rl);
+    _NSThreadPerformInfo *chosen = nil;
+    @synchronized(t) {
+        NSUInteger count = [t->_performers count];
+        for (NSUInteger i = 0; i < count; i++)
         {
-            [performInfo->waiter lock];
-            *performInfo->signalled = YES;
-            [performInfo->waiter signal];
-            [performInfo->waiter unlock];
-        }
-        for (NSString *mode in performInfo->modes)
-        {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), performInfo->source, (CFStringRef)mode);
-        }
-        performInfo->source = NULL;
-        @synchronized(t) {
-            [t->_performers removeObject:performInfo];
+            _NSThreadPerformInfo *candidate = [t->_performers objectAtIndex:i];
+            if (candidate == fired ||
+                (mode != NULL && candidate->source != NULL && CFRunLoopContainsSource(rl, candidate->source, mode)))
+            {
+                chosen = [candidate retain];
+                [t->_performers removeObjectAtIndex:i];
+                break;
+            }
         }
     }
+    if (mode != NULL)
+        CFRelease(mode);
+    if (chosen == nil)
+        return;
+    if (chosen != fired)
+    {
+        CFRunLoopSourceSignal(fired->source);
+        CFRunLoopWakeUp(rl);
+    }
+    CFRunLoopSourceInvalidate(chosen->source);
+    @autoreleasepool {
+        [chosen->target performSelector:chosen->selector withObject:chosen->argument];
+    }
+    if (chosen->waiter)
+    {
+        [chosen->waiter lock];
+        *chosen->signalled = YES;
+        [chosen->waiter signal];
+        [chosen->waiter unlock];
+    }
+    [chosen release];
 }
 
 - (void)_nq:(_NSThreadPerformInfo *)info
 {
+    CFRunLoopSourceContext ctx = {
+        .version = 0,
+        .info = info,
+        .perform = &__NSThreadInfoPerformer,
+    };
+    info->source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
     @synchronized(self) {
         [_performers addObject:info];
     }
     CFRunLoopRef rl = _CFRunLoopGet0(_thread);
     for (NSString *mode in info->modes)
     {
-        CFRunLoopSourceContext ctx = {
-            .version = 0,
-            .info = info,
-            .perform = &__NSThreadInfoPerformer,
-        };
-        info->source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
         CFRunLoopAddSource(rl, info->source, (CFStringRef)mode);
-        CFRelease(info->source);
-        CFRunLoopSourceSignal(info->source);
     }
+    CFRunLoopSourceSignal(info->source);
     CFRunLoopWakeUp(rl);
 }
 
@@ -480,6 +504,10 @@ static void __NSThreadInfoPerformer(void *info)
 
 static void NSThreadPerform(id self, SEL aSelector, NSThread *thr, id arg, BOOL waitUntilDone, NSArray *modes)
 {
+    // "If you specify nil or an empty array for this parameter, this method returns without
+    // performing the specified selector."
+    if ([modes count] == 0)
+        return;
     if ([NSThread currentThread] == thr && waitUntilDone)
     {
         ((void (*)(id, SEL, id))objc_msgSend)(self, aSelector, arg);
@@ -504,7 +532,7 @@ static void NSThreadPerform(id self, SEL aSelector, NSThread *thr, id arg, BOOL 
     if (waitUntilDone)
     {
         [info->waiter lock];
-        if (!signalled)
+        while (!signalled)
         {
             [info->waiter wait];
         }
