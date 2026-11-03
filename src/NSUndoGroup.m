@@ -60,11 +60,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 }
 
 - (void) removeInvocationsWithTarget: (id) target {
-    int i;
-
-    for (i = 0; i < [_invocations count]; ++i)
-        if ([[_invocations objectAtIndex: i] target] == target)
-            [_invocations removeObjectAtIndex: i];
+    for (NSUInteger i = [_invocations count]; i > 0; --i)
+        if ([[_invocations objectAtIndex: i - 1] target] == target)
+            [_invocations removeObjectAtIndex: i - 1];
 }
 
 - (void) invokeInvocations {

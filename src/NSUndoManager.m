@@ -366,24 +366,20 @@ NSString *const NSUndoManagerDidRedoChangeNotification =
 }
 
 - (void) removeAllActionsWithTarget: (id) target {
-    NSUndoGroup *undoGroup;
-    int i;
+    for (NSUndoGroup *group = _currentGroup; group != nil; group = [group parentGroup])
+        [group removeInvocationsWithTarget: target];
 
-    [_currentGroup removeInvocationsWithTarget: target];
-
-    for (i = 0; i < [_undoStack count]; ++i) {
-        undoGroup = [_undoStack objectAtIndex: i];
-
-        [undoGroup removeInvocationsWithTarget: target];
-        if ([[undoGroup invocations] count] == 0)
-            [_undoStack removeObject: undoGroup];
+    for (NSUInteger i = [_undoStack count]; i > 0; --i) {
+        NSUndoGroup *group = [_undoStack objectAtIndex: i - 1];
+        [group removeInvocationsWithTarget: target];
+        if ([[group invocations] count] == 0)
+            [_undoStack removeObjectAtIndex: i - 1];
     }
-    for (i = 0; i < [_redoStack count]; ++i) {
-        undoGroup = [_redoStack objectAtIndex: i];
-
-        [undoGroup removeInvocationsWithTarget: target];
-        if ([[undoGroup invocations] count] == 0)
-            [_redoStack removeObject: undoGroup];
+    for (NSUInteger i = [_redoStack count]; i > 0; --i) {
+        NSUndoGroup *group = [_redoStack objectAtIndex: i - 1];
+        [group removeInvocationsWithTarget: target];
+        if ([[group invocations] count] == 0)
+            [_redoStack removeObjectAtIndex: i - 1];
     }
 }
 
