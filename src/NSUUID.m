@@ -184,8 +184,16 @@ static NSString * const NSUUIDBytesKey = @"NS.uuidbytes";
 
 - (id)initWithUUIDString:(NSString *)string
 {
-    _cfUUID = CFUUIDCreateFromString(kCFAllocatorDefault, (CFStringRef)string);
-    return self;
+    char buffer[37];
+    uuid_t bytes;
+    if ([string length] != 36 ||
+        ![string getCString:buffer maxLength:sizeof(buffer) encoding:NSASCIIStringEncoding] ||
+        uuid_parse(buffer, bytes) != 0)
+    {
+        [self release];
+        return nil;
+    }
+    return [self initWithUUIDBytes:bytes];
 }
 
 - (id)init
@@ -196,7 +204,10 @@ static NSString * const NSUUIDBytesKey = @"NS.uuidbytes";
 
 - (void)dealloc
 {
-    CFRelease(_cfUUID);
+    if (_cfUUID != NULL)
+    {
+        CFRelease(_cfUUID);
+    }
     [super dealloc];
 }
 
