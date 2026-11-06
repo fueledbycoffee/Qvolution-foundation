@@ -210,7 +210,9 @@ void _NSXPCSerializationDecodeTypedObjCValuesFromArray(
                                             atObject: object];
             *(id *) addr = obj;
             if (invocation) {
-                [invocation _addAttachedObject: obj];
+                if (obj) {
+                    [invocation _addAttachedObject: obj];
+                }
             } else {
                 [obj retain];
             }

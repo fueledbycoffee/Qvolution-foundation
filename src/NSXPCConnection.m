@@ -210,6 +210,7 @@ os_log_t nsxpc_get_log(void) {
     if (!_xpcConnection) {
         [NSException raise: NSInvalidArgumentException format: @"Unable to connect to %@", _serviceName];
     }
+    xpc_connection_set_target_queue(_xpcConnection, _queue);
     xpc_connection_set_event_handler(_xpcConnection, ^(xpc_object_t message) {
         xpc_type_t type = xpc_get_type(message);
 
