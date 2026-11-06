@@ -200,6 +200,21 @@ static ssize_t _NSReadFromFileDescriptor(int fd, void *bytes, size_t nbytes)
     return _NSReadFromFileDescriptorWithProgress(fd, bytes, nbytes, NO);
 }
 
+static NSData *_NSDataFromDispatchData(dispatch_data_t data)
+{
+    if (data == NULL)
+    {
+        return [NSData data];
+    }
+
+    const void *bytes;
+    size_t length;
+    dispatch_data_t mapped = dispatch_data_create_map(data, &bytes, &length);
+    NSData *result = [NSData dataWithBytes:bytes length:length];
+    dispatch_release(mapped);
+    return result;
+}
+
 static NSError *_NSErrorWithFilePath(int code, id path)
 {
     NSDictionary *userInfo = [path isKindOfClass:[NSURL class]] ? @{ @"NSURL"/*NSURLErrorKey*/: path } :
@@ -834,20 +849,13 @@ static void NSConcreteFileHandlePerform(void *info)
                 }
                 else
                 {
-                    NSData *data = (NSData *)fh->_resultData;
-                    if (fh->_resultData == nil)
-                    {
-                        data = [NSData data];
-                    }
+                    userInfo = @{ NSFileHandleNotificationDataItem : _NSDataFromDispatchData(fh->_resultData) };
+                }
 
-                    userInfo = @{ NSFileHandleNotificationDataItem : data };
-
-                    if (fh->_resultData != nil)
-                    {
-                        dispatch_release(fh->_resultData);
-                    }
-
-                    fh->_resultData = nil;
+                if (fh->_resultData != NULL)
+                {
+                    dispatch_release(fh->_resultData);
+                    fh->_resultData = NULL;
                 }
 
                 break;
@@ -971,7 +979,10 @@ static void NSConcreteFileHandlePerform(void *info)
                         _error = error;
                     }
 
-                    dispatch_retain(data);
+                    if (data != NULL)
+                    {
+                        dispatch_retain(data);
+                    }
                     _resultData = data;
 
                     CFRunLoopSourceSignal(runLoopSource);
@@ -1005,16 +1016,16 @@ static void NSConcreteFileHandlePerform(void *info)
                         dispatch_data_t newData = dispatch_data_create_concat(_resultData, data);
                         dispatch_release(_resultData);
                         _resultData = newData;
+                    }
 
-                        if (done)
-                        {
-                            dispatch_release(channel);
+                    if (done)
+                    {
+                        dispatch_release(channel);
 
-                            CFRunLoopSourceSignal(runLoopSource);
-                            CFRunLoopWakeUp(currentRunLoop);
+                        CFRunLoopSourceSignal(runLoopSource);
+                        CFRunLoopWakeUp(currentRunLoop);
 
-                            CFRelease(currentRunLoop);
-                        }
+                        CFRelease(currentRunLoop);
                     }
                 });
                 break;
@@ -1107,14 +1118,11 @@ static void NSConcreteFileHandlePerform(void *info)
     [weakSelf storeWeak:self];
 
     dispatch_source_set_event_handler(source, ^{
-        if (dispatch_source_get_data(source) != 0)
-        {
-            @autoreleasepool {
-                NSConcreteFileHandle *myself = [weakSelf loadWeak];
-                if (myself != nil)
-                {
-                    handler(myself);
-                }
+        @autoreleasepool {
+            NSConcreteFileHandle *myself = [weakSelf loadWeak];
+            if (myself != nil)
+            {
+                handler(myself);
             }
         }
     });
@@ -1123,7 +1131,7 @@ static void NSConcreteFileHandlePerform(void *info)
 
     dispatch_source_set_cancel_handler(source, ^{
         close(dupFd);
-        dispatch_release(_monitoringQueue);
+        dispatch_release(source);
     });
 
     dispatch_resume(source);
@@ -1279,14 +1287,20 @@ static void NSConcreteFileHandlePerform(void *info)
         void *buf = malloc(PAGE_SIZE);
         if (buf == NULL)
         {
+            FAIL();
             return nil;
         }
-        NSUInteger length = _NSReadFromFileDescriptor(_fd, buf, PAGE_SIZE);
-        if (length == 0)
+        ssize_t length = _NSReadFromFileDescriptor(_fd, buf, PAGE_SIZE);
+        if (length < 0)
         {
             free(buf);
             FAIL();
             return nil;
+        }
+        if (length == 0)
+        {
+            free(buf);
+            return [NSData data];
         }
         return [NSData dataWithBytesNoCopy:buf length:length];
     }
