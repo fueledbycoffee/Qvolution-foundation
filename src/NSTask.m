@@ -623,7 +623,7 @@ static void waiterCallback(void* info) {
 			waitpid(_pid, &status, 0);
 
 			@synchronized(self) {
-				_code = WEXITSTATUS(status);
+				_code = WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status);
 				_reason = WIFSIGNALED(status) ? NSTaskTerminationReasonUncaughtSignal : NSTaskTerminationReasonExit;
 
 				// if we have a termination handler, call it
