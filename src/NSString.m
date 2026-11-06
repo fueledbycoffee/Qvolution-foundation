@@ -1076,7 +1076,10 @@ static void _NSBuildAvailableStringEncodings(void *unused)
 
 - (NSString *)substringFromIndex:(NSUInteger)from
 {
-    return [self substringWithRange:NSMakeRange(from, [self length] - from)];
+    NSUInteger length = [self length];
+    if (from > length)
+        [NSException raise:NSRangeException format:@"substring index exceeds string length"];
+    return [self substringWithRange:NSMakeRange(from, length - from)];
 }
 
 - (NSString *)substringToIndex:(NSUInteger)to
@@ -1086,6 +1089,11 @@ static void _NSBuildAvailableStringEncodings(void *unused)
 
 - (NSString *)substringWithRange:(NSRange)range
 {
+    if (range.location == NSNotFound)
+        [NSException raise:NSInvalidArgumentException format:@"invalid substring location"];
+    NSUInteger length = [self length];
+    if (range.location > length || range.length > length - range.location)
+        [NSException raise:NSRangeException format:@"substring range exceeds string length"];
     unichar *buffer = malloc(sizeof(unichar) * range.length);
     [self getCharacters:buffer range:range];
     return [[[NSString alloc] initWithCharactersNoCopy:buffer length:range.length freeWhenDone:YES] autorelease];
@@ -1201,6 +1209,8 @@ static void _NSBuildAvailableStringEncodings(void *unused)
 
 - (NSRange)rangeOfString:(NSString *)str options:(NSStringCompareOptions)mask range:(NSRange)searchRange locale:(NSLocale *)locale
 {
+    if (str == nil)
+        [NSException raise:NSInvalidArgumentException format:@"search string must not be nil"];
     if (!NSRangeCheckException(searchRange, [self length]))
     {
         return NSMakeRange(NSNotFound, 0);

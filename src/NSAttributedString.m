@@ -88,7 +88,7 @@ OBJC_PROTOCOL_IMPL_POP
 {
     NSString *s = [self string];
     NSUInteger length = [s length];
-    if ((uint64_t)range.location + range.length > length)
+    if (range.location > length || range.length > length - range.location)
     {
         @throw [NSException exceptionWithName:NSRangeException reason:[NSString stringWithFormat:@"range (%d,%d) beyond NSAttributedString bounds (%d)", range.location, range.length, [self length]] userInfo:nil];
     }
@@ -119,7 +119,8 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (void)enumerateAttributesInRange:(NSRange)enumerationRange options:(NSAttributedStringEnumerationOptions)opts usingBlock:(void (^)(NSDictionary<NSAttributedStringKey, id> * _Nonnull attrs, NSRange range, BOOL *stop))block
 {
-    if ((uint64_t)enumerationRange.location + enumerationRange.length > [self length])
+    NSUInteger length = [self length];
+    if (enumerationRange.location > length || enumerationRange.length > length - enumerationRange.location)
     {
         @throw [NSException exceptionWithName:NSRangeException reason:[NSString stringWithFormat:@"range (%d,%d) beyond NSAttributedString bounds (%d)", enumerationRange.location, enumerationRange.length, [self length]] userInfo:nil];
     }
@@ -144,6 +145,7 @@ OBJC_PROTOCOL_IMPL_POP
             {
                 dict = [self attributesAtIndex:i longestEffectiveRange:&effRange inRange:enumerationRange];
             }
+            effRange = NSIntersectionRange(effRange, enumerationRange);
             block(dict, effRange, &stop);
             if (stop)
             {
@@ -172,18 +174,24 @@ OBJC_PROTOCOL_IMPL_POP
         {
             dict = [self attributesAtIndex:i longestEffectiveRange:&effRange inRange:enumerationRange];
         }
+        effRange = NSIntersectionRange(effRange, NSMakeRange(enumerationRange.location, limit - enumerationRange.location));
+        NSUInteger oldLength = [self length];
         block(dict, effRange, &stop);
         if (stop)
         {
             return;
         }
-        next = effRange.location + effRange.length;
+        NSUInteger newLength = [self length];
+        next = effRange.location + effRange.length + newLength - oldLength;
+        limit = limit + newLength - oldLength;
+        enumerationRange.length = limit - enumerationRange.location;
     }
 }
 
 - (void)enumerateAttribute:(NSString *)attrName inRange:(NSRange)enumerationRange options:(NSAttributedStringEnumerationOptions)opts usingBlock:(void (^)(id value, NSRange range, BOOL *stop))block
 {
-    if ((uint64_t)enumerationRange.location + enumerationRange.length > [self length])
+    NSUInteger length = [self length];
+    if (enumerationRange.location > length || enumerationRange.length > length - enumerationRange.location)
     {
         @throw [NSException exceptionWithName:NSRangeException reason:[NSString stringWithFormat:@"range (%d,%d) beyond NSAttributedString bounds (%d)", enumerationRange.location, enumerationRange.length, [self length]] userInfo:nil];
     }
@@ -199,16 +207,17 @@ OBJC_PROTOCOL_IMPL_POP
         {
             NSRange effRange;
             BOOL stop = NO;
-            NSDictionary *dict;
+            id value;
             if (opts & NSAttributedStringEnumerationLongestEffectiveRangeNotRequired)
             {
-                dict = [self attributesAtIndex:i effectiveRange:&effRange];
+                value = [self attribute:attrName atIndex:i effectiveRange:&effRange];
             }
             else
             {
-                dict = [self attributesAtIndex:i longestEffectiveRange:&effRange inRange:enumerationRange];
+                value = [self attribute:attrName atIndex:i longestEffectiveRange:&effRange inRange:enumerationRange];
             }
-            block(dict, effRange, &stop);
+            effRange = NSIntersectionRange(effRange, enumerationRange);
+            block(value, effRange, &stop);
             if (stop)
             {
                 return;
@@ -236,12 +245,17 @@ OBJC_PROTOCOL_IMPL_POP
         {
             obj = [self attribute:attrName atIndex:i longestEffectiveRange:&effRange inRange:enumerationRange];
         }
+        effRange = NSIntersectionRange(effRange, NSMakeRange(enumerationRange.location, limit - enumerationRange.location));
+        NSUInteger oldLength = [self length];
         block(obj, effRange, &stop);
         if (stop)
         {
             return;
         }
-        next = effRange.location + effRange.length;
+        NSUInteger newLength = [self length];
+        next = effRange.location + effRange.length + newLength - oldLength;
+        limit = limit + newLength - oldLength;
+        enumerationRange.length = limit - enumerationRange.location;
     }
 }
 
@@ -796,6 +810,8 @@ static __NSPlaceholderAttributedString *mutablePlaceholder = nil;
 
 - (id)initWithString:(NSString *)str attributes:(NSDictionary *)attrs
 {
+    if (str == nil)
+        [NSException raise:NSInvalidArgumentException format:@"attributed string requires a string"];
     CFAttributedStringRef string = CFAttributedStringCreate(kCFAllocatorDefault, (CFStringRef)str, (CFDictionaryRef)attrs);
     _CFAttributedStringSetMutable(string, self == mutablePlaceholder);
     return (id)string;
