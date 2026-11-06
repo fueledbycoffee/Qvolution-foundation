@@ -850,7 +850,21 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (id)initWithContentsOfFile:(NSString *)path options:(NSDataReadingOptions)readOptionsMask error:(NSError **)errorPtr
 {
-    return [self initWithContentsOfURL:[NSURL fileURLWithPath:path] options:readOptionsMask error:errorPtr];
+    if (path == nil)
+    {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"cannot create data from nil path"];
+        return nil;
+    }
+    NSUInteger length = 0;
+    BOOL vm = NO;
+    void *buffer = _NSReadBytesFromFile(path, readOptionsMask, &length, &vm, errorPtr);
+    if (buffer == NULL)
+    {
+        [self release];
+        return nil;
+    }
+    return [self initWithBytes:buffer length:length copy:NO freeWhenDone:YES bytesAreVM:vm];
 }
 
 - (id)initWithContentsOfURL:(NSURL *)url options:(NSDataReadingOptions)readOptionsMask error:(NSError **)errorPtr
@@ -870,18 +884,7 @@ OBJC_PROTOCOL_IMPL_POP
             return nil;
         }
 
-        NSUInteger length = 0;
-        BOOL vm = NO;
-        void *buffer = _NSReadBytesFromFile(path, readOptionsMask, &length, &vm, errorPtr);
-        if (buffer == nil)
-        {
-            [self release];
-            return nil;
-        }
-        else
-        {
-            return [self initWithBytes:buffer length:length copy:NO freeWhenDone:YES bytesAreVM:vm];
-        }
+        return [self initWithContentsOfFile:path options:readOptionsMask error:errorPtr];
     }
     else
     {
@@ -925,7 +928,7 @@ OBJC_PROTOCOL_IMPL_POP
         [self release];
         return nil;
     }
-    return [self initWithContentsOfURL:[NSURL fileURLWithPath:path] options:0 error:NULL];
+    return [self initWithContentsOfFile:path options:0 error:NULL];
 }
 
 - (id)initWithContentsOfURL:(NSURL *)url

@@ -47,7 +47,15 @@ __attribute__((objc_root_class)) @interface NSObject { Class isa; }
 + (id)new {return [[self alloc] init];}
 - (id)init {return self;} - (id)retain {return self;} - (id)autorelease {return self;} - (void)release {}
 @end
-static int pathRepresentationCalls;
+static int pathRepresentationCalls, urlConversions;
+@interface NSException : NSObject
++ (void)raise:(id)name format:(id)format,...;
+@end
+@implementation NSException
++ (void)raise:(id)name format:(id)format,... { @throw [self new]; }
+@end
+static id NSInvalidArgumentException;
+
 @interface NSString : NSObject
 + (id)stringWithFormat:(NSString *)fmt,...;
 + (id)from:(const char *)s;
@@ -57,6 +65,7 @@ static int pathRepresentationCalls;
 - (id)stringByAppendingFormat:(NSString *)fmt,...;
 - (const char *)fileSystemRepresentation;
 - (id)stringByAppendingString:(NSString *)s;
+- (id)stringByDeletingLastPathComponent;
 @end
 @interface FixtureString : NSString { @public const char *bytes; unsigned length; }
 @end
@@ -71,6 +80,7 @@ static int pathRepresentationCalls;
  }
  *p=0;va_end(ap);return [self from:output];
 }
+- (id)stringByDeletingLastPathComponent {return @".";}
 - (const char *)UTF8String {return "";}
 - (NSUInteger)length {return strlen([self UTF8String]);}
 - (BOOL)isNSString__ {return YES;}
@@ -145,11 +155,27 @@ static NSString *NSPOSIXErrorDomain=@"NSPOSIXErrorDomain",*NSCocoaErrorDomain=@"
 @implementation NSError
 + (id)errorWithDomain:(NSString *)d code:(NSInteger)c userInfo:(NSDictionary *)i {NSError *e=[self new];e->domain=d;e->code=c;e->info=i;return e;}
 @end
+@interface NSURL : NSObject { @public NSString *filePath; }
++ (id)fileURLWithPath:(NSString *)path;
+@end
+@implementation NSURL
++ (id)fileURLWithPath:(NSString *)path {urlConversions++;if(!path||![path length]||(object_getClass(path)==[Path class]&&!((Path *)path)->filesystem))[NSException raise:nil format:nil];NSURL *u=[self new];u->filePath=path;return u;}
+@end
+void *_NSReadBytesFromFile(NSString *,NSUInteger,NSUInteger *,BOOL *,NSError **);
+static void *_NSReadFixture(NSString *path,NSUInteger options,NSUInteger *n,BOOL *vm,NSError **error);
 @interface NSData : NSObject { void *storage; NSUInteger size; }
 + (id)dataWithBytesNoCopy:(void *)bytes length:(NSUInteger)n;
 - (void *)bytes; - (NSUInteger)length;
+- (id)initWithContentsOfFile:(NSString *)path options:(NSUInteger)options error:(NSError **)error;
+- (id)initWithContentsOfFile:(NSString *)path;
+- (id)initWithContentsOfURL:(NSURL *)url options:(NSUInteger)options error:(NSError **)error;
+- (id)initWithBytes:(void *)bytes length:(NSUInteger)n copy:(BOOL)copy freeWhenDone:(BOOL)freeIt bytesAreVM:(BOOL)vm;
 @end
 @implementation NSData
+- (id)initWithBytes:(void *)b length:(NSUInteger)n copy:(BOOL)copy freeWhenDone:(BOOL)freeIt bytesAreVM:(BOOL)vm {storage=b;size=n;return self;}
+- (id)initWithContentsOfURL:(NSURL *)url options:(NSUInteger)options error:(NSError **)error {NSUInteger n=0;BOOL vm=NO;void *b=_NSReadFixture(url->filePath,options,&n,&vm,error);return b?[self initWithBytes:b length:n copy:NO freeWhenDone:YES bytesAreVM:vm]:nil;}
+DATA_FILE_INIT
+DATA_SIMPLE_INIT
 + (id)dataWithBytesNoCopy:(void *)bytes length:(NSUInteger)n {NSData *o=[self new];o->storage=bytes;o->size=n;return o;}
 - (void *)bytes {return storage;} - (NSUInteger)length {return size;}
 @end
@@ -162,6 +188,7 @@ PATH_HELPER
 static NSError *NSFileReadError(int code,NSString *path) {return [NSError errorWithDomain:NSPOSIXErrorDomain code:code userInfo:nil];}
 READ_METHOD
 WRITE_METHOD
+static void *_NSReadFixture(NSString *path,NSUInteger options,NSUInteger *n,BOOL *vm,NSError **error) {return _NSReadBytesFromFile(path,options,n,vm,error);}
 BYTE_ENUMS
 @interface NSByteCountFormatter : NSObject { @public NSByteCountFormatterUnits _allowedUnits; NSInteger _countStyle,_formattingContext; BOOL _adaptive,_allowsNonnumericFormatting,_includesUnit,_includesCount,_includesActualByteCount,_zeroPadsFractionDigits; }
 - (NSString *)stringFromByteCount:(long long)byteCount;
@@ -171,15 +198,30 @@ static NSArray *_NSByteCountFormatterUnits;
 BYTE_METHOD
 @end
 COMPARE_HELPERS
+#define NSFileWriteFileExistsError 516
+#define COPYFILE_ALL 1
+#define COPYFILE_RECURSIVE 2
+#define COPYFILE_NOFOLLOW_SRC 4
+#define COPYFILE_EXCL 8
+typedef unsigned copyfile_flags_t;
+static int copyfile(const char *src,const char *dst,void *state,copyfile_flags_t flags) {abort();}
 @interface NSFileManager : NSObject
+- (BOOL)fileExistsAtPath:(NSString *)path;
+- (BOOL)createDirectoryAtPath:(NSString *)path withIntermediateDirectories:(BOOL)b attributes:(id)attrs error:(NSError **)error;
 - (const char *)fileSystemRepresentationWithPath:(NSString *)path;
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory;
 - (BOOL)contentsEqualAtPath:(NSString *)path1 andPath:(NSString *)path2;
 @end
 @implementation NSFileManager
+- (id)attributesOfItemAtPath:(NSString *)path error:(NSError **)error {return nil;}
+- (BOOL)fileExistsAtPath:(NSString *)path {return [self fileExistsAtPath:path isDirectory:NULL];}
 - (const char *)fileSystemRepresentationWithPath:(NSString *)path { if(!path||![path length]) {fputs("FAIL throwing public conversion used for empty file operation\n",stderr);abort();} return [path fileSystemRepresentation]; }
+- (BOOL)createDirectoryAtURL:(NSURL *)url withIntermediateDirectories:(BOOL)intermediates attributes:(id)attrs error:(NSError **)error {abort();}
 EXISTS_METHOD
 COMPARE_METHOD
+COPY_METHOD
+MOVE_METHOD
+DIRECTORY_METHOD
 @end
 @interface NSFilesystemItemRemoveOperation : NSObject
 + (NSError *)_errorWithErrno:(int)err atPath:(NSString *)path;
@@ -236,6 +278,40 @@ int main(int argc,char **argv) {
   assert(![fm fileExistsAtPath:invalid isDirectory:NULL]);
   assert(![fm contentsEqualAtPath:invalid andPath:@"."]);
   puts("PASS empty/nil/unrepresentable paths return NO without calling throwing conversion");
+ } else if(!strcmp(argv[1],"long")) {
+  char *longName=malloc(PATH_MAX+1001);memset(longName,'x',PATH_MAX+1000);longName[PATH_MAX+1000]=0;
+  NSString *p=[NSString from:longName];errno=0;
+  assert(NSFileSystemRepresentation(p)==NULL&&errno==ENAMETOOLONG);
+  NSFileManager *fm=[NSFileManager new];assert(![fm fileExistsAtPath:p isDirectory:NULL]);
+  assert(![fm contentsEqualAtPath:p andPath:p]);
+  // Short UTF-16 spelling whose filesystem encoding exceeds PATH_MAX.
+  Path *expanded=[Path new];expanded->bytes="short";expanded->filesystem=longName;errno=0;
+  assert(NSFileSystemRepresentation(expanded)==NULL&&errno==ENAMETOOLONG);
+  longName[PATH_MAX-1]=0;assert(NSFileSystemRepresentation([NSString from:longName]));
+  free(longName);puts("PASS internal conversion bounds encoded bytes, accepts PATH_MAX-1, rejects overlong before stat");
+ } else if(!strcmp(argv[1],"entry")) {
+  char file[]="/tmp/qv-data-entry-XXXXXX";int fd=mkstemp(file);assert(fd>=0);assert(write(fd,"boot",4)==4);close(fd);
+  NSData *d=[[NSData alloc] initWithContentsOfFile:[NSString from:file] options:0 error:NULL];
+  assert(d&&[d length]==4&&!memcmp([d bytes],"boot",4));
+  BOOL threw=NO;@try {d=[[NSData alloc] initWithContentsOfFile:@"" options:0 error:NULL];assert(!d);} @catch(id e) {threw=YES;}assert(!threw);
+  Path *bad=[Path new];bad->bytes="invalid";bad->filesystem=NULL;
+  threw=NO;@try {assert(![[NSData alloc] initWithContentsOfFile:bad options:0 error:NULL]);} @catch(id e) {threw=YES;}assert(!threw);
+  threw=NO;@try {[[NSData alloc] initWithContentsOfFile:nil options:0 error:NULL];} @catch(id e) {threw=YES;}assert(threw);
+  assert(![[NSData alloc] initWithContentsOfFile:nil]);
+  assert(![[NSData alloc] initWithContentsOfFile:@""]);
+  assert(!urlConversions);assert(unlink(file)==0);
+  puts("PASS production NSData file initializers bypass NSURL; invalid reads fail and nil options raise");
+ } else if(!strcmp(argv[1],"policy")) {
+  Path *bad=[Path new];bad->bytes="invalid";bad->filesystem=NULL;BOOL threw=NO;
+  NSFileManager *fm=[NSFileManager new];
+  for(int i=0;i<3;i++) {id p=i==0?nil:(i==1?@"":bad);
+   threw=NO;@try {[fm copyItemAtPath:p toPath:@"valid" error:NULL];} @catch(id e) {threw=YES;}assert(threw);
+   threw=NO;@try {[fm copyItemAtPath:@"valid" toPath:p error:NULL];} @catch(id e) {threw=YES;}assert(threw);
+  }
+  threw=NO;@try {[fm moveItemAtPath:nil toPath:@"valid" error:NULL];} @catch(id e) {threw=YES;}assert(threw);
+  threw=NO;@try {[fm moveItemAtPath:@"valid" toPath:nil error:NULL];} @catch(id e) {threw=YES;}assert(threw);
+  assert(![fm createDirectoryAtPath:nil withIntermediateDirectories:NO attributes:nil error:NULL]);
+  puts("PASS production copy/move exceptions and nil directory match oracle");
  } else if(!strcmp(argv[1],"io")) {
   char file[]="/tmp/qv-path-io-XXXXXX";int fd=mkstemp(file);assert(fd>=0);assert(write(fd,"abc",3)==3);close(fd);
   Path *p=[Path new];p->bytes="/missing/utf8-spelling";p->filesystem=file;

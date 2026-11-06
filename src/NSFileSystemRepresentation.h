@@ -5,12 +5,19 @@
 #import <Foundation/NSData.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <string.h>
 
 static const char *NSFileSystemRepresentation(NSString *path)
 {
     if (path == nil || [path length] == 0)
     {
         errno = ENOENT;
+        return NULL;
+    }
+    if ([path length] >= PATH_MAX)
+    {
+        errno = ENAMETOOLONG;
         return NULL;
     }
     CFIndex capacity = CFStringGetMaximumSizeOfFileSystemRepresentation((CFStringRef)path);
@@ -29,6 +36,12 @@ static const char *NSFileSystemRepresentation(NSString *path)
     {
         free(buffer);
         errno = EILSEQ;
+        return NULL;
+    }
+    if (strlen(buffer) >= PATH_MAX)
+    {
+        free(buffer);
+        errno = ENAMETOOLONG;
         return NULL;
     }
     return [[NSData dataWithBytesNoCopy:buffer length:capacity] bytes];

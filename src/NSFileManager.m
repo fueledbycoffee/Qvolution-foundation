@@ -610,6 +610,14 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
 
 - (BOOL)createDirectoryAtPath:(NSString *)path withIntermediateDirectories:(BOOL)createIntermediates attributes:(NSDictionary *)attributes error:(NSError **)error
 {
+    if (path == nil)
+    {
+        if (error != NULL)
+        {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:ENOENT userInfo:nil];
+        }
+        return NO;
+    }
     return [self createDirectoryAtURL:[NSURL fileURLWithPath:path] withIntermediateDirectories:createIntermediates attributes:attributes error:error];
 }
 
@@ -937,6 +945,22 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 
 - (BOOL)copyItemAtPath:(NSString *)srcPath toPath:(NSString *)dstPath error:(NSError **)error
 {
+    const char *source = NSFileSystemRepresentation(srcPath);
+    int sourceError = errno;
+    const char *destination = NSFileSystemRepresentation(dstPath);
+    if (source == NULL || destination == NULL)
+    {
+        int code = source == NULL ? sourceError : errno;
+        if (srcPath == nil || dstPath == nil || code == ENOENT || code == EILSEQ)
+        {
+            [NSException raise:NSInvalidArgumentException format:@"invalid copy path"];
+        }
+        if (error != NULL)
+        {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:code userInfo:nil];
+        }
+        return NO;
+    }
     NSString *dstDir = [dstPath stringByDeletingLastPathComponent];
     BOOL isDir = NO;
     BOOL exists = [self fileExistsAtPath:dstDir isDirectory:&isDir];
@@ -966,9 +990,7 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         *error = nil;
     }
-    const char *source = NSFileSystemRepresentation(srcPath);
-    const char *destination = source ? NSFileSystemRepresentation(dstPath) : NULL;
-    int err = destination ? copyfile(source, destination, NULL, flags) : -1;
+    int err = copyfile(source, destination, NULL, flags);
 
     if (err != 0)
     {
@@ -1003,6 +1025,11 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 
 - (BOOL)moveItemAtPath:(NSString *)srcPath toPath:(NSString *)dstPath error:(NSError **)error
 {
+    if (srcPath == nil || dstPath == nil)
+    {
+        [NSException raise:NSInvalidArgumentException format:@"move paths must not be nil"];
+        return NO;
+    }
     if (error != NULL) {
         *error = nil;
     }
