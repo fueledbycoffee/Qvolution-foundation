@@ -11,9 +11,10 @@
 
 static const _NSMeasurementLocaleUpdate *localeUpdate(const icu::Locale &locale, const char *unit, int style)
 {
-    for (const auto &entry : cldrUpdates)
-        if (entry.style == style && !strcmp(entry.language, locale.getLanguage()) && !strcmp(entry.unit, unit))
-            return &entry;
+    for (const char *name : {locale.getBaseName(), locale.getLanguage()})
+        for (const auto &entry : cldrUpdates)
+            if (entry.style == style && !strcmp(entry.locale, name) && !strcmp(entry.unit, unit))
+                return &entry;
     return NULL;
 }
 
@@ -27,9 +28,9 @@ static icu::UnicodeString withNumber(const char *pattern, const icu::UnicodeStri
 static bool usesPreviousPattern(const _NSMeasurementLocaleUpdate &entry,
                                 const icu::UnicodeString &formatted, const icu::UnicodeString &number)
 {
-    for (const char *pattern : entry.previousPatterns) {
-        if (!pattern) break;
-        if (formatted == withNumber(pattern, number)) return true;
+    for (const auto &pattern : entry.patterns) {
+        if (!pattern.previous) break;
+        if (formatted == withNumber(pattern.previous, number)) return true;
     }
     return false;
 }
@@ -85,7 +86,8 @@ UChar *_NSMeasurementFormat(const char *locale, const char *unit, int style,
     icu::MeasureUnit *measureUnit = NULL;
     const char *symbol = NULL;
     for (const auto &entry : units) if (!strcmp(unit, entry.identifier)) {
-        if (entry.create) measureUnit = entry.create(status);
+        if (entry.create) measureUnit = style == 3 && !strcmp(unit, "temperature-generic") ?
+            icu::MeasureUnit::createDegree(status) : entry.create(status);
         symbol = entry.symbol;
         break;
     }
@@ -118,15 +120,18 @@ UChar *_NSMeasurementFormat(const char *locale, const char *unit, int style,
     } else {
         icu::Measure measure(value, measureUnit, status);
         formatter.formatMeasures(&measure, 1, formatted, field, status);
-        if (update && update->pattern) {
+        if (update) {
             icu::UnicodeString numeric;
             reinterpret_cast<const icu::NumberFormat *>(number)->format(value, numeric);
-            if (usesPreviousPattern(*update, formatted, numeric)) {
-                formatted = withNumber(update->pattern, numeric);
+            for (const auto &pattern : update->patterns) {
+                if (!pattern.previous) break;
+                if (!pattern.replacement || formatted != withNumber(pattern.previous, numeric)) continue;
+                formatted = withNumber(pattern.replacement, numeric);
                 int32_t start = numeric.length();
                 while (start < formatted.length() && u_isUWhiteSpace(formatted.charAt(start))) ++start;
                 field.setBeginIndex(start);
                 field.setEndIndex(formatted.length());
+                break;
             }
         }
     }

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Generate sparse CLDR 36.1 -> 40 measurement resource updates.
 
-Only update complete entries in the old data. ICU continues to resolve locale
-inheritance for entries whose quantity patterns were already inherited. Varying
-plural patterns remain on ICU's numeric/plural path; this overlay handles only
-display names and quantity patterns identical for every plural category. Each
-update also carries its previous patterns, so a distribution override is kept
-when its formatting no longer matches the upstream baseline.
+Keep entries whose old quantity patterns were inherited on ICU's existing
+inheritance path. Match old rendered patterns before applying updates, so
+local distributor overrides survive. Map plural categories only when an old
+pattern determines one new pattern; ICU supplies the rounded plural choice.
 """
 import argparse
 import hashlib
@@ -35,45 +33,67 @@ def read(version, locale, cache):
             for width in root.findall('.//unitLength')}
 
 
-def fields(data, width, unit):
-    entry = data[width].get(unit)
+def fields(chain, width, unit):
+    data, *parents = chain
+    entry = data.get(width, {}).get(unit)
+    parent_name, parent_patterns = fields(parents, width, unit) if parents else (None, {})
     if entry is None:
-        return None, []
+        return parent_name, parent_patterns
     display = entry.findtext('displayName')
-    patterns = [p.text for p in entry.findall('unitPattern') if 'case' not in p.attrib and 'alt' not in p.attrib]
-    if display == '↑↑↑':
-        display = fields(data, 'short' if width == 'narrow' else 'long', unit)[0]
-    if '↑↑↑' in patterns:
-        inherited = fields(data, 'short' if width == 'narrow' else 'long', unit)[1]
-        patterns = [p for p in patterns if p != '↑↑↑'] + inherited
-    return display, patterns
+    patterns = {p.get('count'): p.text for p in entry.findall('unitPattern') if 'case' not in p.attrib and 'alt' not in p.attrib}
+    if not parents and (display == '↑↑↑' or '↑↑↑' in patterns.values()):
+        parent_name, parent_patterns = fields(chain, 'short' if width == 'narrow' else 'long', unit)
+    if display is None or display == '↑↑↑':
+        display = parent_name
+    result = dict(parent_patterns)
+    result.update({count: parent_patterns.get(count, parent_patterns.get('other')) if pattern == '↑↑↑' else pattern
+                   for count, pattern in patterns.items()})
+    return display, {count: pattern for count, pattern in result.items() if pattern is not None}
 
 
 def generate(cache, dest):
     rows = []
-    for locale in ('en', 'fr', 'ru'):
-        old = read('release-36-1', locale, cache)
-        new = read('release-40', locale, cache)
+    loaded = {}
+    for locale in ('en', 'en_GB', 'fr', 'ru'):
+        chains = []
+        # CLDR supplementalData parentLocales: en_GB -> en_001 -> en.
+        parents = ('en_001', 'en') if locale == 'en_GB' else ()
+        for version in ('release-36-1', 'release-40'):
+            chain = []
+            for name in (locale, *parents):
+                key = (version, name)
+                if key not in loaded:
+                    loaded[key] = read(version, name, cache)
+                chain.append(loaded[key])
+            chains.append(chain)
         for unit in sorted(UNITS):
             for width, style in STYLES.items():
-                old_name, old_patterns = fields(old, width, unit)
-                new_name, new_patterns = fields(new, width, unit)
+                old_name, old_patterns = fields(chains[0], width, unit)
+                new_name, new_patterns = fields(chains[1], width, unit)
                 if not old_patterns:
                     continue
-                display = new_name if new_name != old_name else None
-                pattern = next(iter(set(new_patterns))) if len(set(new_patterns)) == 1 else None
-                if set(new_patterns) == set(old_patterns):
-                    pattern = None
-                if display is not None or pattern is not None:
-                    assert pattern is None or (pattern.startswith('{0}') and pattern.count('{0}') == 1)
-                    rows.append((locale, unit, style, display, pattern, old_name, list(dict.fromkeys(old_patterns))))
+                display = new_name if old_name and new_name != old_name else None
+                changes = {}
+                for count, pattern in old_patterns.items():
+                    changes.setdefault(pattern, set()).add(new_patterns.get(count, new_patterns.get('other')))
+                pairs = []
+                for previous, replacements in changes.items():
+                    replacement = next(iter(replacements)) if len(replacements) == 1 else None
+                    if replacement == previous:
+                        replacement = None
+                    assert replacement is None or (replacement.startswith('{0}') and replacement.count('{0}') == 1)
+                    pairs.append((previous, replacement))
+                if display is not None or any(new for old, new in pairs):
+                    assert len(pairs) < 6
+                    rows.append((locale, unit, style, display, old_name, pairs))
     text = '// Generated by tools/measurement-cldr.py from Unicode CLDR 36.1 and 40.\n'
     text += '// Unicode data license: see measurement-cldr-LICENSE.txt.\n'
-    text += 'struct _NSMeasurementLocaleUpdate { const char *language, *unit; int style; const char *display, *pattern, *previousDisplay; const char *previousPatterns[6]; };\n'
+    text += 'struct _NSMeasurementLocaleUpdate { const char *locale, *unit; int style; const char *display, *previousDisplay; struct { const char *previous, *replacement; } patterns[6]; };\n'
     text += 'static const _NSMeasurementLocaleUpdate cldrUpdates[] = {\n'
+    quote = lambda x: 'NULL' if x is None else str(x) if isinstance(x, int) else json.dumps(x, ensure_ascii=False)
     for row in rows:
-        columns = ['NULL' if x is None else str(x) if isinstance(x, int) else json.dumps(x, ensure_ascii=False) for x in row[:-1]]
-        columns.append('{' + ', '.join(json.dumps(x, ensure_ascii=False) for x in row[-1]) + ', NULL}')
+        columns = [quote(x) for x in row[:-1]]
+        columns.append('{' + ', '.join('{' + quote(old) + ', ' + quote(new) + '}' for old, new in row[-1]) + ', {NULL, NULL}}')
         text += '    {' + ', '.join(columns) + '},\n'
     dest.write_text(text + '};\n')
     print(len(rows), 'resource deltas ->', dest)

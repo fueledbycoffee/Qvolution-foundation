@@ -32,10 +32,10 @@ static const char *unitIdentifier(NSUnit *unit)
             {@"nm", "length-nanometer", 1e-9}, {@"pm", "length-picometer", 1e-12},
             {@"in", "length-inch", .0254}, {@"ft", "length-foot", .3048},
             {@"yd", "length-yard", .9144}, {@"mi", "length-mile", 1609.344},
-            {@"smi", "length-mile-scandinavian", 10000}, {@"ly", "length-light-year", 9.461e15},
+            {@"smi", "length-mile-scandinavian", 10000}, {@"ly", "length-light-year", 9460730472580800.0},
             {@"NM", "length-nautical-mile", 1852}, {@"ftm", "length-fathom", 1.8288},
-            {@"fur", "length-furlong", 201.168}, {@"ua", "length-astronomical-unit", 1.496e11},
-            {@"pc", "length-parsec", 3.086e16}
+            {@"fur", "length-furlong", 201.168}, {@"ua", "length-astronomical-unit", 149597870700.0},
+            {@"pc", "length-parsec", 30856775814913672.0}
         };
         for (NSUInteger i = 0; i < sizeof(units)/sizeof(units[0]); ++i)
             if ([linear coefficient] == units[i].coefficient && [symbol isEqualToString:units[i].symbol])
@@ -183,8 +183,12 @@ static int naturalLengthScale(NSUnit *unit)
     NSUnit *unit = [measurement unit];
     if (!(_unitOptions & NSMeasurementFormatterUnitOptionsProvidedUnit)) {
         if ([unit isKindOfClass:[NSUnitTemperature class]]) {
-            NSString *country = [_locale objectForKey:NSLocaleCountryCode];
-            unit = [country isEqualToString:@"US"] ? [NSUnitTemperature fahrenheit] : [NSUnitTemperature celsius];
+            if (_unitOptions & NSMeasurementFormatterUnitOptionsTemperatureWithoutUnit) {
+                if ([unit isEqual:[NSUnitTemperature fahrenheit]]) unit = [NSUnitTemperature celsius];
+            } else {
+                NSString *country = [_locale objectForKey:NSLocaleCountryCode];
+                unit = [country isEqualToString:@"US"] ? [NSUnitTemperature fahrenheit] : [NSUnitTemperature celsius];
+            }
         } else if ([unit isKindOfClass:[NSUnitLength class]]) {
             BOOL metric = _NSMeasurementUsesMetricLength([[_locale localeIdentifier] UTF8String]);
             unit = metric ? [NSUnitLength kilometers] : [NSUnitLength miles];

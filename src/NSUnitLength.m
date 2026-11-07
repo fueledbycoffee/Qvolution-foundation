@@ -55,7 +55,7 @@
     return [[[self alloc] initWithSymbol:@"smi" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:10000 constant:0] autorelease]] autorelease];
 }
 + (instancetype)lightyears {
-    return [[[self alloc] initWithSymbol:@"ly" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:9.461e15 constant:0] autorelease]] autorelease];
+    return [[[self alloc] initWithSymbol:@"ly" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:9460730472580800.0 constant:0] autorelease]] autorelease];
 }
 + (instancetype)nauticalMiles {
     return [[[self alloc] initWithSymbol:@"NM" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:1852 constant:0] autorelease]] autorelease];
@@ -67,10 +67,10 @@
     return [[[self alloc] initWithSymbol:@"fur" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:201.168 constant:0] autorelease]] autorelease];
 }
 + (instancetype)astronomicalUnits {
-    return [[[self alloc] initWithSymbol:@"ua" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:1.496e11 constant:0] autorelease]] autorelease];
+    return [[[self alloc] initWithSymbol:@"ua" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:149597870700.0 constant:0] autorelease]] autorelease];
 }
 + (instancetype)parsecs {
-    return [[[self alloc] initWithSymbol:@"pc" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:3.086e16 constant:0] autorelease]] autorelease];
+    return [[[self alloc] initWithSymbol:@"pc" converter:[[[NSUnitConverterLinear alloc] initWithCoefficient:30856775814913672.0 constant:0] autorelease]] autorelease];
 }
 + (instancetype)baseUnit { return [self meters]; }
 @end
