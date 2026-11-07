@@ -42,10 +42,16 @@ static BOOL NSContainsRange(NSRange haystack, NSRange needle)
 #define HAS_SINGLE_RANGE(set) (FLAGS(set)._hasSingleRange)
 #define SET_HAS_SINGLE_RANGE(set, val) (FLAGS(set)._hasSingleRange = val)
 
-#define CACHE_VALID(set) (FLAGS(set)._cacheValid)
+// The range cache is built lazily by readers. An immutable set may be read from several
+// threads at once ("Immutable objects are generally thread-safe", Thread Programming Guide,
+// Thread Safety Summary), so the cache pointer is the only published state: it is NULL or a
+// fully built cache, stored with a release compare-and-swap and read with an acquire load.
+// _cacheValid stays in the ABI but is never set, because readers must not write the shared
+// flag word. Mutation is not thread-safe ("mutable objects are generally not thread-safe"):
+// mutators drop the cache and must not race readers or each other.
 #define SET_CACHE_VALID(set, val) (FLAGS(set)._cacheValid = val)
 
-#define CACHE(set) (MULTIPLE_RANGES(set)._cache)
+#define CACHE_SLOT(set) (&MULTIPLE_RANGES(set)._cache)
 #define SET_CACHE(set, value) MULTIPLE_RANGES(set)._cache = value
 
 #define MULTIPLE_RANGE_DATA(set) MULTIPLE_RANGES(set)._data
@@ -59,9 +65,11 @@ static BOOL NSContainsRange(NSRange haystack, NSRange needle)
 SET_CACHE_VALID(set, NO); \
 SET_CACHE(set, NULL)
 
-#define CLEAR_CACHE(set) if (!HAS_SINGLE_RANGE(set) && CACHE_VALID(set)) { \
-    NSIndexSetPurgeCache((NSIndexSetCache *)CACHE(set)); \
-    RESET_CACHE(set); \
+// In the single-range and empty states the slot aliases _singleRange, so only a
+// non-empty multi-range set owns a cache pointer.
+#define CLEAR_CACHE(set) if (!IS_EMPTY(set) && !HAS_SINGLE_RANGE(set)) { \
+    NSIndexSetPurgeCache(__atomic_exchange_n(CACHE_SLOT(set), NULL, __ATOMIC_ACQ_REL)); \
+    SET_CACHE_VALID(set, NO); \
 }
 
 #define CLEAR_RANGES(set) if (!IS_EMPTY(set)) { \
@@ -73,14 +81,9 @@ SET_CACHE(set, NULL)
     SET_EMPTY(set, YES); \
 }
 
-#define BUILD_CACHE(set) ({ \
-    if (!HAS_SINGLE_RANGE(set) && !CACHE_VALID(set)) { \
-        NSIndexSetBuildCache(&CACHE(set), MULTIPLE_RANGE_DATA(set)); \
-        SET_CACHE_VALID(set, CACHE(set) != NULL); \
-    } \
-    BOOL __valid = !HAS_SINGLE_RANGE(set) && CACHE_VALID(set); \
-    __valid; \
-})
+// The cache of a non-empty multi-range set, built and published on first use, or NULL
+// when it cannot be allocated (callers then walk the range list).
+#define BUILD_CACHE(set) NSIndexSetGetCache(CACHE_SLOT(set), MULTIPLE_RANGE_DATA(set))
 
 
 @implementation NSIndexSet
@@ -150,6 +153,28 @@ static inline void NSIndexSetBuildCache(NSIndexSetCache **cache, RangeList *rang
         free(*cache);
         *cache = NULL;
     }
+}
+
+static NSIndexSetCache *NSIndexSetGetCache(NSIndexSetCache **slot, RangeList *ranges)
+{
+    NSIndexSetCache *cache = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+    if (cache != NULL)
+    {
+        return cache;
+    }
+    NSIndexSetBuildCache(&cache, ranges);
+    if (cache == NULL)
+    {
+        return NULL;
+    }
+    NSIndexSetCache *published = NULL;
+    if (__atomic_compare_exchange_n(slot, &published, cache, NO, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        return cache;
+    }
+    // Another reader published first: use its cache, free ours.
+    NSIndexSetPurgeCache(cache);
+    return published;
 }
 
 static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
@@ -485,7 +510,8 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     {
         return SINGLE_RANGE(self).length;
     }
-    else if (!BUILD_CACHE(self))
+    NSIndexSetCache *cache = BUILD_CACHE(self);
+    if (cache == NULL)
     {
         RangeList *ptr = NULL;
         NSUInteger count = 0;
@@ -495,10 +521,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
         }
         return count;
     }
-    else
-    {
-        return CACHE(self)->count;
-    }
+    return cache->count;
 }
 
 - (NSUInteger)rangeCount
@@ -512,17 +535,15 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     {
         return 1;
     }
-    else if (!BUILD_CACHE(self))
+    NSIndexSetCache *cache = BUILD_CACHE(self);
+    if (cache == NULL)
     {
         NSUInteger sum = 0;
         RangeList *ptr = NULL;
         DL_COUNT(MULTIPLE_RANGE_DATA(self), ptr, sum);
         return sum;
     }
-    else
-    {
-        return CACHE(self)->rangeCount;
-    }
+    return cache->rangeCount;
 }
 
 - (NSRange) rangeAtIndex: (NSUInteger) idx
@@ -542,7 +563,8 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
         return SINGLE_RANGE(self);
     }
 
-    if (!BUILD_CACHE(self))
+    NSIndexSetCache *cache = BUILD_CACHE(self);
+    if (cache == NULL)
     {
         NSUInteger seen = 0;
         RangeList *ptr = NULL;
@@ -557,7 +579,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
         return NSMakeRange(NSNotFound, 0);
     }
 
-    return *(NSRange *) CFArrayGetValueAtIndex(CACHE(self)->ranges, idx);
+    return *(NSRange *) CFArrayGetValueAtIndex(cache->ranges, idx);
 }
 
 - (NSUInteger)firstIndex
@@ -605,11 +627,12 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
         NSRange r = SINGLE_RANGE(self);
         return value >= NSMaxRange(r) ? NSNotFound : MAX(value, r.location);
     }
-    if (BUILD_CACHE(self))
+    NSIndexSetCache *cache = BUILD_CACHE(self);
+    if (cache != NULL)
     {
         // Ranges are sorted and disjoint: binary search the first one that ends at or after value.
-        CFArrayRef ranges = CACHE(self)->ranges;
-        CFIndex lo = 0, hi = CACHE(self)->rangeCount;
+        CFArrayRef ranges = cache->ranges;
+        CFIndex lo = 0, hi = cache->rangeCount;
         while (lo < hi)
         {
             CFIndex mid = lo + (hi - lo) / 2;
@@ -619,7 +642,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             else
                 hi = mid;
         }
-        if (lo == CACHE(self)->rangeCount)
+        if (lo == cache->rangeCount)
         {
             return NSNotFound;
         }
@@ -648,11 +671,12 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
         NSRange r = SINGLE_RANGE(self);
         return value < r.location ? NSNotFound : MIN(value, NSMaxRange(r) - 1);
     }
-    if (BUILD_CACHE(self))
+    NSIndexSetCache *cache = BUILD_CACHE(self);
+    if (cache != NULL)
     {
         // The last range that starts at or before value.
-        CFArrayRef ranges = CACHE(self)->ranges;
-        CFIndex lo = 0, hi = CACHE(self)->rangeCount;
+        CFArrayRef ranges = cache->ranges;
+        CFIndex lo = 0, hi = cache->rangeCount;
         while (lo < hi)
         {
             CFIndex mid = lo + (hi - lo) / 2;
@@ -2060,8 +2084,9 @@ static inline void _shiftRange(NSRange *range, NSInteger delta)
 
         NSRange currentRange = SINGLE_RANGE(self);
 
-        CLEAR_CACHE(self);
         SET_HAS_SINGLE_RANGE(self, NO);
+        // set the cache to NULL so that it does not have junk data from the union
+        RESET_CACHE(self);
         MULTIPLE_RANGE_DATA(self) = NULL;
 
         firstRange->range = NSMakeRange(currentRange.location, index - currentRange.location);

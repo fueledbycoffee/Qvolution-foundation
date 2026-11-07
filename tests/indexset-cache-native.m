@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <pthread.h>
 #include "utlist.h"
 typedef unsigned long NSUInteger;
 typedef long NSInteger, CFIndex;
@@ -91,18 +92,22 @@ static id NSInvalidArgumentException, NSRangeException;
 
 static size_t allocations, outstanding, arrays, live_arrays, array_reads;
 static long fail_after = -1;
+/* Counters are atomic: the threads case calls the production code from several threads.
+ * fail_after is only armed by the single-threaded failure case. */
+#define INC(x) __atomic_add_fetch(&(x), 1, __ATOMIC_SEQ_CST)
+#define DEC(x) __atomic_sub_fetch(&(x), 1, __ATOMIC_SEQ_CST)
 static void *counted_malloc(size_t n) {
     if (fail_after == 0) { fail_after = -1; return NULL; }
     if (fail_after > 0) --fail_after;
-    void *p = malloc(n); assert(p); memset(p,0xa5,n); ++allocations; ++outstanding; return p;
+    void *p = malloc(n); assert(p); memset(p,0xa5,n); INC(allocations); INC(outstanding); return p;
 }
-static void counted_free(void *p) { if (p) { assert(outstanding); --outstanding; free(p); } }
+static void counted_free(void *p) { if (p) { size_t left = DEC(outstanding); assert(left != (size_t)-1); free(p); } }
 static void *counted_reallocf(void *p, size_t n) {
     if (fail_after == 0) { fail_after=-1; counted_free(p); return NULL; }
     if (fail_after > 0) --fail_after;
     void *q = realloc(p,n);
     if (!q) { counted_free(p); return NULL; }
-    ++allocations; if (!p) ++outstanding; return q;
+    INC(allocations); if (!p) INC(outstanding); return q;
 }
 typedef struct { CFIndex n; const void *values[]; } *CFArrayRef;
 typedef struct { void *retain, *release; } CFArrayCallBacks;
@@ -111,13 +116,13 @@ typedef int CFComparisonResult;
 enum { kCFCompareLessThan = -1, kCFCompareEqualTo = 0, kCFCompareGreaterThan = 1 };
 static CFArrayRef CFArrayCreate(void *a, const void **v, CFIndex n, const CFArrayCallBacks *cb) {
     CFArrayRef r = counted_malloc(sizeof(*r)+n*sizeof(*v));
-    if (r) { r->n=n; memcpy(r->values,v,n*sizeof(*v)); ++arrays; ++live_arrays; }
+    if (r) { r->n=n; memcpy(r->values,v,n*sizeof(*v)); INC(arrays); INC(live_arrays); }
     return r;
 }
 static const void *CFArrayGetValueAtIndex(CFArrayRef a, CFIndex i) {
-    assert(a && i >= 0 && i < a->n); ++array_reads; return a->values[i];
+    assert(a && i >= 0 && i < a->n); INC(array_reads); return a->values[i];
 }
-static void CFRelease(CFArrayRef a) { assert(a && live_arrays); --live_arrays; counted_free(a); }
+static void CFRelease(CFArrayRef a) { assert(a); size_t left = DEC(live_arrays); assert(left != (size_t)-1); counted_free(a); }
 #define malloc counted_malloc
 #define free counted_free
 #define reallocf counted_reallocf
@@ -160,9 +165,52 @@ static void check_members(NSIndexSet *s, const unsigned char *members, NSUIntege
         assert([s indexGreaterThanIndex:q]==gt && [s indexGreaterThanOrEqualToIndex:q]==ge);
     }
 }
+enum { RACERS = 8, RACE_RANGES = 200 };
+static NSIndexSet *race_set;
+static pthread_barrier_t race_start;
+static NSUInteger race_results[RACERS][4];
+static void *racer(void *arg) {
+    NSUInteger *out = race_results[(intptr_t)arg];
+    pthread_barrier_wait(&race_start);
+    // First use from every thread at once: each may build a cache; exactly one may be kept.
+    out[0]=[race_set indexGreaterThanIndex:101]; out[1]=[race_set indexLessThanIndex:101];
+    out[2]=[race_set indexGreaterThanOrEqualToIndex:398]; out[3]=[race_set count];
+    return NULL;
+}
+static void race_immutable_first_use(void) {
+    NSMutableIndexSet *m=fragmented(RACE_RANGES);
+    size_t lost=0, rounds=0, held=outstanding;
+    pthread_barrier_init(&race_start,NULL,RACERS);
+    // At least 2000 rounds, and keep going (bounded) until a lost publication race was seen,
+    // so a pass shows the compare-and-swap loser path ran.
+    for (; rounds<2000 || (lost==0 && rounds<50000); rounds++) {
+        race_set=[[NSIndexSet alloc] initWithIndexSet:m];
+        size_t base=arrays, objects=outstanding;
+        pthread_t t[RACERS];
+        for (intptr_t i=0;i<RACERS;i++) assert(!pthread_create(&t[i],NULL,racer,(void *)i));
+        for (int i=0;i<RACERS;i++) assert(!pthread_join(t[i],NULL));
+        for (int i=0;i<RACERS;i++) {
+            assert(race_results[i][0]==102 && race_results[i][1]==100);
+            assert(race_results[i][2]==398 && race_results[i][3]==RACE_RANGES);
+        }
+        if (live_arrays!=1 || outstanding-objects!=2) {
+            printf("round %zu: %zu caches built, %zu still live, %zu new allocations outstanding\n",
+                   rounds,arrays-base,live_arrays,outstanding-objects);
+            assert(live_arrays==1 && outstanding-objects==2); // one kept cache: struct + array
+        }
+        lost+=arrays-base-1;
+        [race_set release]; assert(!live_arrays && outstanding==held);
+    }
+    pthread_barrier_destroy(&race_start);
+    printf("%zu rounds x %d threads: %zu losing caches built and freed, 1 kept per round\n",
+           rounds,RACERS,lost);
+    assert(lost>0); // the race was exercised
+    [m release];
+}
 int main(int argc, char **argv) {
     assert(argc==2); setbuf(stdout,NULL);
     if (!strcmp(argv[1],"original")) return original_main();
+    if (!strcmp(argv[1],"threads")) race_immutable_first_use(); else
     if (!strcmp(argv[1],"leak")) {
         /* Reviewer reproducer (REVIEW-codex.md fix 6, native-cache-check.c): 1001 complete
          * copies from a two-range set. On 76ca1c5 every lookup built and dropped a cache. */
