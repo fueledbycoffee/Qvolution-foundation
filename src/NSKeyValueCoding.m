@@ -125,7 +125,7 @@ static NSString *const NSUnknownUserInfoKey = @"NSUnknownUserInfoKey";
         {
             NSMutableArray *results = [NSMutableArray arrayWithCapacity: [aVal count]];
             for (id element in (id<NSFastEnumeration>)aVal)
-                [results addObject: [element valueForKeyPath: remainderPath]];
+                [results addObject: [element valueForKeyPath: remainderPath] ?: [NSNull null]];
             return results;
         }
 

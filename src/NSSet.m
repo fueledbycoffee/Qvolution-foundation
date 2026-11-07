@@ -188,24 +188,15 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (id)_distinctUnionOfSetsForKeyPath:(id)keyPath
 {
-    NSMutableSet *resultSet=[NSMutableSet set];
-    NSEnumerator *enumerator = [self objectEnumerator];
-    id anObj = nil;
-    while ((anObj = [enumerator nextObject]) != NULL)
+    NSMutableSet *result = [NSMutableSet set];
+    for (id object in self)
     {
-        if (![anObj isKindOfClass:[NSSet class]])
-        {
-#warning TODO https://code.google.com/p/apportable/issues/detail?id=265
-            @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"argument is not an NSSet" userInfo:nil];
-            return nil;
-        }
-        NSSet *aSet = [anObj _distinctUnionOfObjectsForKeyPath:keyPath];
-        for (id aValue in aSet)
-        {
-            [resultSet addObject:aValue];
-        }
+        id set = [object isKindOfClass:[NSSet class]] ? [object _distinctUnionOfObjectsForKeyPath:keyPath] : [object valueForKeyPath:keyPath];
+        if (![set isKindOfClass:[NSSet class]])
+            [NSException raise:NSInvalidArgumentException format:@"union key path must yield an NSSet"];
+        [result unionSet:set];
     }
-    return resultSet;
+    return result;
 }
 
 - (id)_distinctUnionOfArraysForKeyPath:(id)keyPath

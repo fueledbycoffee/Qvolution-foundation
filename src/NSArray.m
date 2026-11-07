@@ -6,6 +6,7 @@
 //
 
 #import <Foundation/NSArray.h>
+#import <Foundation/NSNull.h>
 #import <Foundation/NSString.h>
 #import "NSCoderInternal.h"
 #import <Foundation/NSException.h>
@@ -212,9 +213,14 @@ OBJC_PROTOCOL_IMPL_POP
     id anObj = nil;
     while ((anObj = [enumerator nextObject]))
     {
-        [resultArray addObject:[anObj valueForKey:key]];
+        [resultArray addObject:[anObj valueForKey:key] ?: [NSNull null]];
     }
     return resultArray;
+}
+
+- (void)setValue:(id)value forKey:(NSString *)key
+{
+    for (id object in self) [object setValue:value forKey:key];
 }
 
 - (id)_unionOfObjectsForKeyPath:(id)keyPath
@@ -233,11 +239,12 @@ OBJC_PROTOCOL_IMPL_POP
 - (id)_unionOfArraysForKeyPath:(id)keyPath
 {
     NSMutableArray *result = [NSMutableArray array];
-    for (id array in self)
+    for (id object in self)
     {
+        id array = [object isNSArray__] ? [object _unionOfObjectsForKeyPath:keyPath] : [object valueForKeyPath:keyPath];
         if (![array isKindOfClass:[NSArray class]])
-            [NSException raise:NSInvalidArgumentException format:@"argument is not an NSArray"];
-        [result addObjectsFromArray:[array _unionOfObjectsForKeyPath:keyPath]];
+            [NSException raise:NSInvalidArgumentException format:@"union key path must yield an NSArray"];
+        [result addObjectsFromArray:array];
     }
     return [NSArray arrayWithArray:result];
 }
@@ -260,46 +267,20 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (id)_distinctUnionOfSetsForKeyPath:(id)keyPath
 {
-    NSMutableSet *resultSet=[NSMutableSet set];
-    NSEnumerator *enumerator = [self objectEnumerator];
-    id anObj = nil;
-    while ((anObj = [enumerator nextObject]) != NULL)
+    NSMutableSet *result = [NSMutableSet set];
+    for (id object in self)
     {
-        if (![anObj isKindOfClass:[NSSet class]])
-        {
-#warning TODO FIXME what should userInfo be?
-            @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"argument is not an NSSet" userInfo:nil];
-            return nil;
-        }
-        NSSet *aSet = [anObj _distinctUnionOfObjectsForKeyPath:keyPath];
-        for (id aValue in aSet)
-        {
-            [resultSet addObject:aValue];
-        }
+        id set = [object isKindOfClass:[NSSet class]] ? [object _distinctUnionOfObjectsForKeyPath:keyPath] : [object valueForKeyPath:keyPath];
+        if (![set isKindOfClass:[NSSet class]])
+            [NSException raise:NSInvalidArgumentException format:@"union key path must yield an NSSet"];
+        [result unionSet:set];
     }
-    return [NSArray arrayWithArray:[resultSet allObjects]];
+    return [NSArray arrayWithArray:[result allObjects]];
 }
 
 - (id)_distinctUnionOfArraysForKeyPath:(id)keyPath
 {
-    NSMutableSet *resultSet = [NSMutableSet set];
-    NSEnumerator *enumerator = [self objectEnumerator];
-    id anObj = nil;
-    while ((anObj = [enumerator nextObject]))
-    {
-        if (! ([anObj isKindOfClass:[NSArray class]] || [anObj isKindOfClass:[NSSet class]]) )
-        {
-#warning TODO FIXME what should userInfo be?
-            @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"argument is not an NSArray or NSSet" userInfo:nil];
-            return nil;
-        }
-        NSSet *aSet = [anObj _distinctUnionOfObjectsForKeyPath:keyPath];
-        for (id aValue in aSet)
-        {
-            [resultSet addObject:aValue];
-        }
-    }
-    return [NSArray arrayWithArray:[resultSet allObjects]];
+    return [[NSSet setWithArray:[self _unionOfArraysForKeyPath:keyPath]] allObjects];
 }
 
 - (id)valueForKeyPath:(id)aKeyPath
