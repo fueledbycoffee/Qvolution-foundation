@@ -6,6 +6,7 @@
 //
 
 #import <CoreFoundation/CFNumberFormatter.h>
+#import "ForFoundationOnly.h"
 #import <Foundation/NSNumberFormatter.h>
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSError.h>

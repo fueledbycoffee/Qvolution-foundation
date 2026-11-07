@@ -50,6 +50,7 @@ static const char *unitIdentifier(NSUnit *unit)
 }
 
 @implementation NSMeasurementFormatter
+@synthesize unitOptions = _unitOptions, unitStyle = _unitStyle;
 
 - (instancetype)init
 {
