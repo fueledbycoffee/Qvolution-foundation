@@ -1121,7 +1121,9 @@ static void _NSBuildAvailableStringEncodings(void *unused)
         // NOTE : "If the value is nil, the behavior is undefined and may change in future versions of OS X."
         return NSOrderedDescending;
     }
-    return (NSComparisonResult)CFStringCompareWithOptionsAndLocale((CFStringRef)self, (CFStringRef)string, CFRangeMake(compareRange.location, compareRange.length), (CFStringCompareFlags)mask, (CFLocaleRef)locale);
+    CFStringCompareFlags options = (CFStringCompareFlags)mask;
+    if (!(mask & NSLiteralSearch)) options |= kCFCompareNonliteral;
+    return (NSComparisonResult)CFStringCompareWithOptionsAndLocale((CFStringRef)self, (CFStringRef)string, CFRangeMake(compareRange.location, compareRange.length), options, (CFLocaleRef)locale);
 }
 
 - (NSComparisonResult)caseInsensitiveCompare:(NSString *)string
