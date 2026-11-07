@@ -76,6 +76,7 @@ SET_CACHE(set, NULL)
 #define BUILD_CACHE(set) ({ \
     if (!HAS_SINGLE_RANGE(set) && !CACHE_VALID(set)) { \
         NSIndexSetBuildCache(&CACHE(set), MULTIPLE_RANGE_DATA(set)); \
+        SET_CACHE_VALID(set, CACHE(set) != NULL); \
     } \
     BOOL __valid = !HAS_SINGLE_RANGE(set) && CACHE_VALID(set); \
     __valid; \
@@ -104,56 +105,50 @@ static inline void NSIndexSetBuildCache(NSIndexSetCache **cache, RangeList *rang
         return;
     }
     
-#define STACK_SIZE 32
-    
-    RangeList *stack_values[STACK_SIZE] = {0};
-    RangeList **values = &stack_values[0];
+    RangeList *stack_values[32];
+    RangeList **values = stack_values;
     RangeList *entry = NULL;
     NSUInteger rangeCount = 0;
     NSUInteger count = 0;
-    NSUInteger capacity = 0;
-    
+
     DL_FOREACH(ranges, entry)
     {
-        if (rangeCount > STACK_SIZE && values == &stack_values[0])
-        {
-            values = malloc(capacity * sizeof(RangeList *));
-            if (values == NULL)
-            {
-                free(*cache);
-                *cache = NULL;
-                return;
-            }
-        }
-        else if (rangeCount > STACK_SIZE && rangeCount + 1 > capacity)
-        {
-            capacity *= 2;
-            values = reallocf(values, capacity * sizeof(RangeList *));
-            if (values == NULL) // prev values cleaned up by reallocf
-            {
-                free(*cache);
-                *cache = NULL;
-                return;
-            }
-        }
-        
-        values[rangeCount] = entry;
-        count += entry->range.length;
-        
         rangeCount++;
+        count += entry->range.length;
     }
-    
+    if (rangeCount > sizeof(stack_values) / sizeof(*stack_values))
+    {
+        values = malloc(rangeCount * sizeof(*values));
+        if (values == NULL)
+        {
+            free(*cache);
+            *cache = NULL;
+            return;
+        }
+    }
+    NSUInteger i = 0;
+    DL_FOREACH(ranges, entry)
+    {
+        values[i++] = entry;
+    }
+
     static const CFArrayCallBacks callbacks = {
         .retain = NULL,
         .release = NULL,
     };
-    
+
     (*cache)->ranges = CFArrayCreate(kCFAllocatorDefault, (const void **)values, rangeCount, &callbacks);
     (*cache)->rangeCount = rangeCount;
-    
-    if (values != &stack_values[0] && values != NULL)
+    (*cache)->count = count;
+
+    if (values != stack_values)
     {
         free(values);
+    }
+    if ((*cache)->ranges == NULL)
+    {
+        free(*cache);
+        *cache = NULL;
     }
 }
 
@@ -232,7 +227,8 @@ static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
         }
         else
         {
-            DL_INSERT(MULTIPLE_RANGE_DATA(self), ptr, newRange);
+            RangeList *next = ptr->next;
+            DL_INSERT(MULTIPLE_RANGE_DATA(self), next, newRange);
         }
         
         [self _mergeOverlappingRangesStartingAtIndex:(ptr ?: MULTIPLE_RANGE_DATA(self))];
@@ -717,15 +713,32 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     NSUInteger first = range ? range->location : 0;
     NSUInteger end = range ? NSMaxRange(*range) : NSUIntegerMax; // one past the last index examined
     NSUInteger count = 0;
-    NSUInteger index = [self _firstIndexAtOrAfter:first];
-    while (count < bufferSize && index != NSNotFound && index < end)
+    if (IS_EMPTY(self))
     {
-        indexBuffer[count++] = index;
-        if (index == NSUIntegerMax - 1)
+        return 0;
+    }
+    RangeList single = {0};
+    RangeList *ptr = NULL;
+    if (HAS_SINGLE_RANGE(self))
+    {
+        single.range = SINGLE_RANGE(self);
+        ptr = &single;
+    }
+    else
+    {
+        ptr = MULTIPLE_RANGE_DATA(self);
+    }
+    for (; ptr != NULL && count < bufferSize; ptr = ptr->next)
+    {
+        if (ptr->range.location >= end)
         {
             break;
         }
-        index = [self _firstIndexAtOrAfter:index + 1];
+        NSUInteger limit = MIN(NSMaxRange(ptr->range), end);
+        for (NSUInteger index = MAX(first, ptr->range.location); index < limit && count < bufferSize; index++)
+        {
+            indexBuffer[count++] = index;
+        }
     }
     if (count > 0 && range != NULL)
     {
@@ -1965,7 +1978,8 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
                 second->range.location = end + 1;
                 second->range.length = rangeEnd - end;
                 
-                DL_INSERT(MULTIPLE_RANGE_DATA(self), ptr, second);
+                RangeList *next = ptr->next;
+                DL_INSERT(MULTIPLE_RANGE_DATA(self), next, second);
                 break;
             }
         }
