@@ -537,7 +537,7 @@ int main(int argc,char **argv) {
   BOOL raised=NO;@try{[r numberOfMatchesInString:@"a" options:0 range:NSMakeRange(2,1)];}@catch(id e){raised=YES;}CHECK(raised);
  } else if(!strcmp(section,"value")) {
   BOOL hasSizedGet=class_getInstanceMethod([NSValue class],@selector(getValue:size:))!=NULL;CHECK(hasSizedGet);
-  if(hasSizedGet) { int inputs[]={0,-1,42,INT_MAX};for(unsigned i=0;i<4;i++){NSValue *v=[NSValue new];v->stored=inputs[i];struct {int value;int canary;} output={17,123};[v getValue:&output.value size:sizeof(int)];CHECK(output.value==inputs[i] && output.canary==123);} }
+  if(hasSizedGet) { int inputs[]={0,-1,42,INT_MAX};for(unsigned i=0;i<4;i++){NSValue *v=[NSValue new];v->stored=inputs[i];struct {int value;int canary;} output={17,123};[v getValue:&output.value size:sizeof(int)];CHECK(output.value==inputs[i] && output.canary==123);} for(unsigned size=0;size<=8;size++){if(size==4)continue;int buffer[4]={0};BOOL raised=NO;@try{[[NSValue new] getValue:buffer size:size];}@catch(id e){raised=YES;}CHECK(raised);} }
  } else if(!strcmp(section,"formatter")) {
   NSNumberFormatter *f=[NSNumberFormatter new];CHECK(![f numberFromString:@"12x"]);CHECK(![f numberFromString:@"1,234.5"]);CHECK([[f numberFromString:@" 42 "] doubleValue]==42);
   f->decimal=YES;CHECK([[f numberFromString:@"42"] isKindOfClass:[NSDecimalNumber class]]);
@@ -553,7 +553,7 @@ int main(int argc,char **argv) {
   NativeCFNumber *small=[[NativeCFNumber alloc] initWithDouble:(double)(float)1.23456789];small->cfType=5;
   CHECK([[small stringValue] isEqual:@"1.234568"]);
   NativeCFNumber *unsignedMax=[[NativeCFNumber alloc] initWithDouble:18446744073709551616.0];unsignedMax->cfType=17;unsignedMax->signedStorage=-1;
-  CHECK([unsignedMax doubleValue]==-1.0);
+  CHECK([unsignedMax doubleValue]==18446744073709551616.0);
  } else if(!strcmp(section,"number")) {
   id minusZero=[[NativeCFNumber alloc] initWithDouble:-0.0],zero=[[NativeCFNumber alloc] initWithDouble:0.0];CHECK([[minusZero stringValue] isEqual:@"-0"]);CHECK([minusZero compare:zero]==0);
   CHECK([[[[NativeCFNumber alloc] initWithDouble:INFINITY] stringValue] isEqual:@"inf"]);CHECK([[[[NativeCFNumber alloc] initWithDouble:-INFINITY] stringValue] isEqual:@"-inf"]);

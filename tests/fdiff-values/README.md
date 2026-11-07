@@ -29,3 +29,10 @@ collation, locale data or Apple/Darling agreement. Run the authored macOS checks
 using the lane's run-qvdiff.sh after reviewing the commits. Existing public KVC
 regressions tests/kvc-unions.m and tests/kvc-nil-values.m should also be run in the
 guest. The lane's NSValue-size-oracle.m asks about unobserved buffer error cases.
+
+R11 follow-up: the ordinary CF-number unsigned conversion expectation is corrected
+from -1 to the full unsigned magnitude. macOS 12.7.6 distinguishes constant
+integer literals from factory numbers (g11-foundation-4/oracle/
+20261107T152939Z-constant-numbers.m_.txt). The literal path has separate production
+method coverage in tests/constant-number-native.py. Sized NSValue extraction
+also checks rejection of buffer sizes 0..8 except the exact int size.

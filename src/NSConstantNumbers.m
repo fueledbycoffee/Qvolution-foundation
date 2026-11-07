@@ -64,11 +64,9 @@ CONSTANT_NUMBER_COMMON_ACCESSORS(VALUE) \
 - (BOOL)isEqualToNumber:(NSNumber *)other { return self == other || (other != nil && [self compare:other] == NSOrderedSame); } \
 - (NSComparisonResult)compare:(NSNumber *)other \
 { \
-    /* Compare CF numbers directly: handing `self` or another constant number to CFNumberCompare */ \
-    /* would dispatch back into these methods (compare:/_reverseCompare:) and recurse. */ \
     if ([other respondsToSelector:@selector(_equivalentNumber)]) \
         other = [(id)other _equivalentNumber]; \
-    return (NSComparisonResult)CFNumberCompare((CFNumberRef)[self _equivalentNumber], (CFNumberRef)other, NULL); \
+    return [[self _equivalentNumber] compare:other]; \
 } \
 /* CFNumberCompare(a, b) calls [b _reverseCompare:a] when b is an Objective-C number; it expects compare(a, b). */ \
 - (NSComparisonResult)_reverseCompare:(NSNumber *)other { return (NSComparisonResult)-(NSInteger)[self compare:other]; } \
@@ -86,33 +84,14 @@ SINGLETON_RR()
 
 CONSTANT_NUMBER_COMMON_ACCESSORS(INTEGER_LAYOUT(self)->value)
 
-// clang stores unsigned literals (encodings C, S, I, L, Q) as their 64-bit pattern, so values
-// from 2^63 up read back negative as long long; convert them as unsigned.
-static BOOL integerEncodingIsUnsigned(const char *encoding)
-{
-    switch (encoding[0])
-    {
-        case 'C':
-        case 'S':
-        case 'I':
-        case 'L':
-        case 'Q':
-            return YES;
-        default:
-            return NO;
-    }
-}
-
 - (float)floatValue
 {
-    long long value = INTEGER_LAYOUT(self)->value;
-    return integerEncodingIsUnsigned(INTEGER_LAYOUT(self)->encoding) ? (float)(unsigned long long)value : (float)value;
+    return (float)INTEGER_LAYOUT(self)->value;
 }
 
 - (double)doubleValue
 {
-    long long value = INTEGER_LAYOUT(self)->value;
-    return integerEncodingIsUnsigned(INTEGER_LAYOUT(self)->encoding) ? (double)(unsigned long long)value : (double)value;
+    return (double)INTEGER_LAYOUT(self)->value;
 }
 
 - (const char *)objCType
