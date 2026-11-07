@@ -4,7 +4,7 @@ Primitive Foundation operations are doubles. This is not a guest/runtime gate.
 --baseline uses the committed parent (formatter class absent), requiring failure.
 """
 import argparse,pathlib,subprocess,re
-p=argparse.ArgumentParser();p.add_argument('--baseline',action='store_true');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--baseline',action='store_true');p.add_argument('--baseline-revision',default='HEAD^');a=p.parse_args()
 repo=pathlib.Path(__file__).resolve().parents[1];out=repo.parent/'native';out.mkdir(exist_ok=True)
 assert not subprocess.check_output(['git','-C',str(repo),'status','--porcelain'],text=True).strip(),'commit before testing'
 def stripped(text):return '\n'.join(x for x in text.splitlines() if not x.startswith('#import'))
@@ -14,7 +14,7 @@ for h in ['NSPersonNameComponents','NSPersonNameComponentsFormatter']:
 program+=stripped((repo/'src/NSPersonNameComponents.m').read_text())+'\n'
 if not a.baseline:program+=stripped((repo/'src/NSPersonNameComponentsFormatter.m').read_text())+'\n'
 else:
- r=subprocess.run(['git','-C',str(repo),'cat-file','-e','HEAD^:src/NSPersonNameComponentsFormatter.m'],capture_output=True)
+ r=subprocess.run(['git','-C',str(repo),'cat-file','-e',a.baseline_revision+':src/NSPersonNameComponentsFormatter.m'],capture_output=True)
  assert r.returncode,'baseline must not already contain formatter'
 program+=(repo/'tests/person-name-native.m').read_text()
 label='before' if a.baseline else 'after';src=out/(label+'.m');exe=out/label;src.write_text(program)
