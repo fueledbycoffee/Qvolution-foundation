@@ -1240,7 +1240,7 @@ static CFDictionaryValueCallBacks sNSCFDictionaryValueCallBacks = {
         case _C_CHARPTR:
         case _C_ATOM:
         {
-            id string = [self decodeObjectOfClass:[NSString class] forKey:freshGenericKey(self)];
+            id string = _decodeObject(self, freshGenericKey(self));
             const char *cString = [(NSString *)string UTF8String];
             *(const char **)addr = cString;
             break;
