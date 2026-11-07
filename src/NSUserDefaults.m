@@ -199,13 +199,27 @@ static void initQueues() {
     // registered key.
     NSMutableArray *changed = [NSMutableArray array];
     NSDictionary *registered = [self volatileDomainForName: NSRegistrationDomain];
+    NSDictionary *arguments = [self volatileDomainForName: NSArgumentDomain];
     for (NSString *key in dictionary)
     {
-        id old = [self objectForKey:key];
+        // A key the argument or application domain holds is answered from there,
+        // whatever its value: registration cannot change it. Same search order as
+        // -objectForKey:.
+        if (arguments[key] != nil)
+        {
+            continue;
+        }
+        __block BOOL shadowed = NO;
+        dispatch_sync(synchronizeQueue, ^{
+            CFPropertyListRef value = CFPreferencesCopyAppValue((CFStringRef)key, APP_NAME);
+            if (value != NULL)
+            {
+                shadowed = YES;
+                CFRelease(value);
+            }
+        });
         id oldRegistered = registered[key];
-        // A value from the argument or application domain shadows the registration.
-        BOOL shadowed = old != nil && !(oldRegistered != nil && [oldRegistered isEqual:old]);
-        if (!shadowed && (old == nil || ![old isEqual:dictionary[key]]))
+        if (!shadowed && (oldRegistered == nil || ![oldRegistered isEqual:dictionary[key]]))
         {
             [changed addObject:key];
         }

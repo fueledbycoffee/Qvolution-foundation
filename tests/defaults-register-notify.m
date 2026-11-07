@@ -27,4 +27,16 @@ int main(void) { @autoreleasepool {
     notes = 0; [d removeObjectForKey:k];
     printf("remove.notes>0: %d kvo: %ld value=B: %d\n", notes > 0, (long) o.hits, [[d objectForKey:k] isEqual:@"B"]); o.hits = 0;
     [d removeObserver:o forKeyPath:k];
+    // Shadowed keys: an application-domain value wins over any registration, equal or not.
+    NSString *s1 = [k stringByAppendingString:@"_S1"], *s2 = [k stringByAppendingString:@"_S2"];
+    [d registerDefaults:@{s1: @"A", s2: @"A"}];
+    [d setObject:@"A" forKey:s1];
+    [d setObject:@"Z" forKey:s2];
+    [d addObserver:o forKeyPath:s1 options:NSKeyValueObservingOptionNew context:NULL];
+    [d addObserver:o forKeyPath:s2 options:NSKeyValueObservingOptionNew context:NULL];
+    o.hits = 0; notes = 0; [d registerDefaults:@{s1: @"B", s2: @"B"}];
+    printf("shadowed.notes>0: %d kvo: %ld s1=A: %d s2=Z: %d\n", notes > 0, (long) o.hits,
+           [[d objectForKey:s1] isEqual:@"A"], [[d objectForKey:s2] isEqual:@"Z"]);
+    [d removeObserver:o forKeyPath:s1]; [d removeObserver:o forKeyPath:s2];
+    [d removeObjectForKey:s1]; [d removeObjectForKey:s2];
 } return 0; }
