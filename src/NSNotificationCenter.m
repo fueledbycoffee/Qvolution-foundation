@@ -29,6 +29,7 @@ extern void objc_destroyWeak(id *location);
 	id _observer;
 	id _weakObserver;
 	BOOL _weakCapable;
+	BOOL _active;
 	SEL _selector;
 	NSString* _name;
 	id _object;
@@ -60,6 +61,7 @@ extern void objc_destroyWeak(id *location);
     self = [super init];
     if (self)
     {
+        _active = YES;
         _observer = observer;
         _weakCapable = observer == nil || objc_initWeakOrNil(&_weakObserver, observer) != nil;
         _selector = selector;
@@ -99,8 +101,15 @@ extern void objc_destroyWeak(id *location);
     return target == nil;
 }
 
+- (void)invalidate
+{
+    __atomic_store_n(&_active, NO, __ATOMIC_RELEASE);
+}
+
 - (void)postNotification:(NSNotification *)notif target:(id)target
 {
+    if (!__atomic_load_n(&_active, __ATOMIC_ACQUIRE))
+        return;
     if (_queue != nil && _block != NULL)
     {
         // Deliver the posted notification itself. NSNotification objects are immutable
@@ -237,7 +246,10 @@ extern void objc_destroyWeak(id *location);
     NSIndexSet *indicies = [_observers indexesOfObjectsPassingTest:^BOOL(_NSNotificationObserver *notifObserver, NSUInteger idx, BOOL *stop) {
         // observer may be a user controlled object, or an instance of _NSNotificationObserver if the block version of 
         // addObserverForName was used
-        return notifObserver == observer || notifObserver.observer == observer;
+        BOOL matches = notifObserver == observer || notifObserver.observer == observer;
+        if (matches)
+            [notifObserver invalidate];
+        return matches;
     }];
     [_observers removeObjectsAtIndexes:indicies];
     pthread_mutex_unlock(&_observersLock);
@@ -252,7 +264,10 @@ extern void objc_destroyWeak(id *location);
         BOOL matchesObserver = observer != nil && (notifObserver == observer || notifObserver.observer == observer);
         BOOL matchesName = aName == nil || [notifObserver.name isEqualToString:aName];
         BOOL matchesObject = anObject == nil || notifObserver.object == anObject;
-        return matchesObserver && matchesName && matchesObject;
+        BOOL matches = matchesObserver && matchesName && matchesObject;
+        if (matches)
+            [notifObserver invalidate];
+        return matches;
     }];
     [_observers removeObjectsAtIndexes:indicies];
     pthread_mutex_unlock(&_observersLock);
