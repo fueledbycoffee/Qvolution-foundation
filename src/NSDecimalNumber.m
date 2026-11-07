@@ -514,27 +514,19 @@ static NSString *NSDecimalNumberBehaviors = @"NSDecimalNumberBehaviors";
 
 - (NSString *)description
 {
-    #warning NSDecimalNumber description needs a real implementation
-    NSString *string = nil;
-    if ([self isEqual:[NSDecimalNumber notANumber]])
-    {
-        string = @"NaN";
-    }
-    else
-    {
-        // add 1 for decimal point, 1 for sign, 5 for e+308 (max)
-        // and 1 for null termination  = 1 + 1 + 1 + 5 = 8
-        char buffer[DBL_DIG + 8] = {0};
-        double d = [self doubleValue];
-        int success = snprintf(buffer, sizeof(buffer), "%g", d);
+    NSDecimal value = [self decimalValue];
+    return NSDecimalString(&value, nil);
+}
 
-        if (success)
-        {
-            string = [NSString stringWithUTF8String:buffer];
-        }
-    }
+- (NSString *)descriptionWithLocale:(id)locale
+{
+    NSDecimal value = [self decimalValue];
+    return NSDecimalString(&value, locale);
+}
 
-    return string;
+- (NSString *)stringValue
+{
+    return [self description];
 }
 
 @end

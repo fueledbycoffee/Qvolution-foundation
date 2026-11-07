@@ -577,6 +577,11 @@ indexDone: ;
   [split removeIndexesInRange:NSMakeRange(5,2)];
   __block NSUInteger end=0,count=0;[split enumerateRangesUsingBlock:^(NSRange r,BOOL *stop){CHECK(r.location>=end);end=NSMaxRange(r);count+=r.length;}];CHECK(count==7);
 
+ } else if(!strcmp(section,"decimal-display")) {
+  unsigned long long integer=9223372036854776000ULL;NSDecimal d={0};d._length=4;memcpy(d._mantissa,&integer,sizeof(integer));
+  NSDecimalNumber *n=[NSDecimalNumber decimalNumberWithDecimal:d];CHECK([[n description] isEqual:@"9223372036854776000"]);
+  d._isNegative=1;n=[NSDecimalNumber decimalNumberWithDecimal:d];CHECK([[n description] isEqual:@"-9223372036854776000"]);
+  d=(NSDecimal){0};d._length=1;d._mantissa[0]=1;d._exponent=-20;n=[NSDecimalNumber decimalNumberWithDecimal:d];CHECK([[n description] isEqual:@"0.00000000000000000001"]);
  } else if(!strcmp(section,"decimal")) {
   NSDecimal d={0}; d._length=2;d._mantissa[0]=0x15;d._mantissa[1]=1;d._exponent=20;
   NSDecimalNumber *n=[NSDecimalNumber decimalNumberWithDecimal:d];
