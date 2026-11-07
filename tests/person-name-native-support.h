@@ -150,8 +150,10 @@ static UChar *units(NSString *s) { NSUInteger n=[s length]; UChar *r=calloc(n+1,
 @end
 @interface NSLocale : NSObject
 + (id)autoupdatingCurrentLocale;
+- (id)initWithLocaleIdentifier:(NSString *)identifier;
 @end
 @implementation NSLocale
+- (id)initWithLocaleIdentifier:(NSString *)identifier { return self; }
 + (id)autoupdatingCurrentLocale {static id locale;if(!locale)locale=[self new];return locale;}
 @end
 @interface NSException : NSObject

@@ -10,6 +10,9 @@
 #import <Foundation/NSString.h>
 #include <unicode/uscript.h>
 #include <unicode/uchar.h>
+#include <unicode/unorm2.h>
+#include <string.h>
+#include "NSPersonNameLatinRoles.inc"
 
 NSString * const NSPersonNameComponentKey = @"NSPersonNameComponentKey";
 NSString * const NSPersonNameComponentGivenName = @"givenName";
@@ -69,6 +72,70 @@ static UScriptCode nameScript(NSString *given, NSString *family)
 static NSString *initial(NSString *part)
 {
     return [part length] ? [part substringWithRange:[part rangeOfComposedCharacterSequenceAtIndex:0]] : @"";
+}
+
+static char latinNameRole(NSString *word)
+{
+    char folded[14];
+    NSUInteger length = 0;
+    UErrorCode error = U_ZERO_ERROR;
+    const UNormalizer2 *normalizer = unorm2_getNFDInstance(&error);
+    if (U_FAILURE(error)) return 0;
+    for (NSUInteger i = 0; i < [word length];)
+    {
+        NSUInteger width;
+        UChar32 c = nameCharacter(word, i, &width);
+        i += width;
+        UChar decomposition[20];
+        int32_t count = unorm2_getDecomposition(normalizer, c, decomposition, 20, &error);
+        if (U_FAILURE(error)) return 0;
+        if (count < 0) { decomposition[0] = c <= 0xffff ? c : 0; count = 1; }
+        for (int32_t j = 0; j < count; ++j)
+        {
+            c = u_foldCase(decomposition[j], U_FOLD_CASE_DEFAULT);
+            if (u_charType(c) == U_NON_SPACING_MARK) continue;
+            if (c < 'a' || c > 'z' || length == sizeof(folded) - 1) return 0;
+            folded[length++] = c;
+        }
+    }
+    folded[length] = 0;
+    NSUInteger low = 0, high = sizeof(latinNameRoles) / sizeof(latinNameRoles[0]);
+    while (low < high)
+    {
+        NSUInteger mid = low + (high - low) / 2;
+        int order = strcmp(folded, latinNameRoles[mid] + 1);
+        if (!order) return latinNameRoles[mid][0];
+        if (order < 0) high = mid;
+        else low = mid + 1;
+    }
+    return 0;
+}
+
+static NSUInteger givenNameLength(NSArray *words, NSUInteger start, NSUInteger end)
+{
+    if (end - start < 2) return 1;
+    NSString *first = [[words objectAtIndex:start] lowercaseString];
+    NSString *second = [[words objectAtIndex:start + 1] lowercaseString];
+    // Lexical compounds are independent of the following surname or middle names.
+    static const char * const compounds[][2] = {
+        {"ana", "maria"}, {"anna", "maria"}, {"anne", "marie"},
+        {"jean", "claude"}, {"jean", "luc"}, {"jean", "paul"},
+        {"john", "james"}, {"john", "michael"}, {"john", "paul"},
+        {"juan", "carlos"}, {"mary", "ann"}, {"mary", "jane"},
+        {"michael", "james"}, {"sarah", "jane"}
+    };
+    const char *a = [first UTF8String], *b = [second UTF8String];
+    for (NSUInteger i = 0; i < sizeof(compounds) / sizeof(compounds[0]); ++i)
+        if (!strcmp(a, compounds[i][0]) && !strcmp(b, compounds[i][1])) return 2;
+    return 1;
+}
+
+static void parseGivenNames(NSPersonNameComponents *result, NSArray *words, NSUInteger start, NSUInteger end)
+{
+    NSUInteger givenEnd = start + givenNameLength(words, start, end);
+    result.givenName = [[words subarrayWithRange:NSMakeRange(start, givenEnd - start)] componentsJoinedByString:@" "];
+    if (givenEnd < end)
+        result.middleName = [[words subarrayWithRange:NSMakeRange(givenEnd, end - givenEnd)] componentsJoinedByString:@" "];
 }
 
 static void appendPart(NSMutableAttributedString *result, NSString *part, NSString *key, NSString *separator)
@@ -266,28 +333,43 @@ static void appendPart(NSMutableAttributedString *result, NSString *part, NSStri
         if (comma != NSNotFound && comma + 1 < [words count])
         {
             result.familyName = [[words subarrayWithRange:NSMakeRange(0, comma + 1)] componentsJoinedByString:@" "];
-            [words removeObjectsInRange:NSMakeRange(0, comma + 1)];
-            result.givenName = [words objectAtIndex:0];
-            if ([words count] > 1)
-                result.middleName = [[words subarrayWithRange:NSMakeRange(1, [words count] - 1)] componentsJoinedByString:@" "];
+            parseGivenNames(result, words, comma + 1, [words count]);
         }
         else
         {
-            result.givenName = first;
-            if ([words count] > 1)
+            NSUInteger count = [words count], givenEnd = givenNameLength(words, 0, count);
+            NSUInteger invertedGiven = NSNotFound;
+            if (givenEnd == 1 && count > 1 && latinNameRole(first) != 'g')
             {
-                NSUInteger familyStart = [words count] - 1;
-                // The documented Latin grammar includes compound surnames led by de.
-                for (NSUInteger i = 1; i < familyStart; ++i)
-                    if ([[[words objectAtIndex:i] lowercaseString] isEqual:@"de"])
+                for (NSUInteger i = 1; i < count; ++i)
+                    if (latinNameRole([words objectAtIndex:i]) == 'g')
+                    {
+                        invertedGiven = i;
+                        break;
+                    }
+            }
+            if (invertedGiven != NSNotFound)
+            {
+                result.familyName = [[words subarrayWithRange:NSMakeRange(0, invertedGiven)] componentsJoinedByString:@" "];
+                parseGivenNames(result, words, invertedGiven, count);
+            }
+            else if (count == 1 && latinNameRole(first) == 'f') result.familyName = first;
+            else
+            {
+                NSUInteger familyStart = count > givenEnd ? count - 1 : count;
+                for (NSUInteger i = givenEnd; i < familyStart; ++i)
+                {
+                    NSString *word = [words objectAtIndex:i];
+                    if (latinNameRole(word) == 'f' || [[word lowercaseString] isEqual:@"de"])
                     {
                         familyStart = i;
                         break;
                     }
-                result.familyName = [[words subarrayWithRange:NSMakeRange(familyStart,
-                    [words count] - familyStart)] componentsJoinedByString:@" "];
-                if (familyStart > 1)
-                    result.middleName = [[words subarrayWithRange:NSMakeRange(1, familyStart - 1)] componentsJoinedByString:@" "];
+                }
+                parseGivenNames(result, words, 0, familyStart);
+                if (familyStart < count)
+                    result.familyName = [[words subarrayWithRange:NSMakeRange(familyStart,
+                        count - familyStart)] componentsJoinedByString:@" "];
             }
         }
     }
