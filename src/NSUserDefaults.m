@@ -24,7 +24,6 @@ NSString * const NSUserDefaultsDidChangeNotification = @"NSUserDefaultsDidChange
 
 static NSUserDefaults *standardDefaults = nil;
 static dispatch_queue_t synchronizeQueue;
-static dispatch_queue_t notificationQueue;
 
 static pthread_mutex_t defaultsLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -37,7 +36,6 @@ static void initQueues() {
 
     dispatch_once(&onceToken, ^{
         synchronizeQueue = dispatch_queue_create("com.apportable.synchronize.userdefaults", NULL);
-        notificationQueue = dispatch_queue_create("com.apportable.notify.userdefaults", NULL);
     });
 };
 
@@ -174,16 +172,15 @@ static void initQueues() {
 
     // For KVO to work, we must synchronize on the value setter; otherwise the
     // "will" and "did" set notifications will lie and wrong values will be
-    // received by observers. We additionally dispatch the notification
-    // asynchronously to avoid blocking on observers of the notification itself.
+    // received by observers.
     [self willChangeValueForKey:key];
     dispatch_sync(synchronizeQueue, ^{
         CFPreferencesSetAppValue((CFStringRef)key, (CFTypeRef)value, APP_NAME);
-        dispatch_async(notificationQueue, ^{
-            [[NSNotificationCenter defaultCenter] postNotificationName:NSUserDefaultsDidChangeNotification object:self userInfo:nil];
-        });
     });
     [self didChangeValueForKey:key];
+    // "The system posts this notification on the same thread you used to make the change"
+    // (Apple, UserDefaults.didChangeNotification); observers run before this method returns.
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSUserDefaultsDidChangeNotification object:self userInfo:nil];
 }
 
 - (void)registerDefaults:(NSDictionary *)dictionary
