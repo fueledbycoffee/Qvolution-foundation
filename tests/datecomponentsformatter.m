@@ -63,8 +63,8 @@ int main(void)
 
         NSDateComponentsFormatter *positional = formatterFor(@"en_US", NSDateComponentsFormatterUnitsStylePositional);
         expect([positional.calendar.locale.localeIdentifier isEqualToString:@"en_US"], @"calendar keeps its locale when copied");
-        expectString([positional stringFromTimeInterval:0], @"0:00", @"positional 0s");
-        expectString([positional stringFromTimeInterval:5], @"0:05", @"positional 5s");
+        expectString([positional stringFromTimeInterval:0], @"0", @"positional 0s");
+        expectString([positional stringFromTimeInterval:5], @"5", @"positional 5s");
         expectString([positional stringFromTimeInterval:70], @"1:10", @"positional 70s");
         expectString([positional stringFromTimeInterval:3903], @"1:05:03", @"positional 3903s");
         expectString([positional stringFromTimeInterval:-3903], @"-1:05:03", @"positional -3903s");

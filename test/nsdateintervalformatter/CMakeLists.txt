@@ -1,0 +1,2 @@
+add_darling_executable(foundation_nsdateintervalformatter main.m)
+target_link_libraries(foundation_nsdateintervalformatter Foundation)

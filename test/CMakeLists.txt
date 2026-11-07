@@ -8,3 +8,5 @@ add_subdirectory(kvo-pending-notifications)
 add_subdirectory(nsthread-stack-size)
 add_subdirectory(nsdate-calendar-format)
 add_subdirectory(imports)
+
+add_subdirectory(nsdateintervalformatter)
