@@ -2178,7 +2178,7 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
     unichar ch;
     if (invertedWhitespaceSet == nil)
     {
-        invertedWhitespaceSet = [[[NSCharacterSet whitespaceCharacterSet] invertedSet] retain];
+        invertedWhitespaceSet = [[[NSCharacterSet whitespaceAndNewlineCharacterSet] invertedSet] retain];
     }
 
     NSRange found = [self rangeOfCharacterFromSet:invertedWhitespaceSet];
@@ -2188,10 +2188,25 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
         return NO;
     }
     NSUInteger index = found.location;
+    NSUInteger length = [self length];
 
-    ch = [self characterAtIndex:index];
-    while ((ch < 127 && __NSNumberSet[ch >> 3] & (1 << (ch & 7))))
+    if (type == NSNumericBOOLValue)
     {
+        ch = [self characterAtIndex:index];
+        if (ch == '+' || ch == '-')
+            index++;
+        while (index < length && [self characterAtIndex:index] == '0')
+            index++;
+        ch = index < length ? [self characterAtIndex:index] : 0;
+        resultValue->b = ch == 'Y' || ch == 'y' || ch == 'T' || ch == 't' || (ch >= '1' && ch <= '9');
+        return YES;
+    }
+
+    while (index < length)
+    {
+        ch = [self characterAtIndex:index];
+        if (!(ch < 127 && (__NSNumberSet[ch >> 3] & (1 << (ch & 7)))))
+            break;
         if (numChars >= capacity - 1)
         {
             capacity += ALLOC_CHUNK_SIZE;
@@ -2207,34 +2222,9 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
         }
         charPtr[numChars++] = (char)ch;
         index++;
-        ch = [self characterAtIndex:index];
     }
     charPtr[numChars++] = 0;
-    if (type == NSNumericBOOLValue)
-    {
-        long l = strtol(charPtr, &endCharPtr, 10);
-        if (l == 0)
-        {
-            NSString *substr = [self substringFromIndex:found.location];
-            if ([substr compare:@"YES" options:NSCaseInsensitiveSearch range:NSMakeRange(0, 3)] == NSOrderedSame)
-            {
-                resultValue->b = YES;
-            }
-            else if ([substr compare:@"TRUE" options:NSCaseInsensitiveSearch range:NSMakeRange(0, 4)] == NSOrderedSame)
-            {
-                resultValue->b = YES;
-            }
-            else
-            {
-                resultValue->b = NO;
-            }
-        }
-        else
-        {
-            resultValue->b = YES;
-        }
-    }
-    else if (type == NSNumericLongValue)
+    if (type == NSNumericLongValue)
     {
         resultValue->l = strtol(charPtr, &endCharPtr, 10);
     }
