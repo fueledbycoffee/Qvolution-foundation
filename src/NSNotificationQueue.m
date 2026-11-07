@@ -54,7 +54,22 @@ static BOOL matchesNotification(NSNotification *notification, NSUInteger mask, _
         (!(mask & NSNotificationCoalescingOnSender) || entry->notification.object == notification.object);
 }
 
-static BOOL coalesceNotification(NSNotification *notification, NSUInteger mask, NSMutableArray *array, BOOL remove)
+struct _NSNotificationQueueCursor
+{
+    NSUInteger index;
+    struct _NSNotificationQueueCursor *previous;
+};
+
+static void removeEntry(NSMutableArray *queue, NSUInteger index, struct _NSNotificationQueueCursor *cursor)
+{
+    // Nested drains and cancellation must also advance suspended outer drains.
+    for (; cursor != NULL; cursor = cursor->previous)
+        if (index < cursor->index)
+            cursor->index--;
+    [queue removeObjectAtIndex:index];
+}
+
+static BOOL coalesceNotification(NSNotification *notification, NSUInteger mask, NSMutableArray *array, BOOL remove, struct _NSNotificationQueueCursor *cursor)
 {
     BOOL found = NO;
     for (NSUInteger i = [array count]; i > 0; i--)
@@ -64,7 +79,7 @@ static BOOL coalesceNotification(NSNotification *notification, NSUInteger mask, 
         {
             found = YES;
             if (remove)
-                [array removeObjectAtIndex:i - 1];
+                removeEntry(array, i - 1, cursor);
         }
     }
     return found;
@@ -151,23 +166,22 @@ static void postNotifications(CFRunLoopObserverRef observer, CFRunLoopActivity a
     NSMutableArray *queue = style == NSPostASAP ? _asapQueue : _idleQueue;
     CFRunLoopRef loop = CFRunLoopGetCurrent();
     CFStringRef mode = CFRunLoopCopyCurrentMode(loop);
+    struct _NSNotificationQueueCursor **head = style == NSPostASAP ? &_asapDelivery : &_idleDelivery;
+    struct _NSNotificationQueueCursor cursor = {0, *head};
+    *head = &cursor;
     @try
     {
-        NSUInteger index = 0;
-        while (index < [queue count])
+        while (cursor.index < [queue count])
         {
-            _NSNotificationQueueEntry *entry = [queue objectAtIndex:index];
+            _NSNotificationQueueEntry *entry = [queue objectAtIndex:cursor.index++];
             BOOL eligible = [entry->modes containsObject:(NSString *)mode] ||
                 ([entry->modes containsObject:NSRunLoopCommonModes] &&
                  CFRunLoopContainsObserver(loop, entry->observer, mode));
             if (!eligible)
-            {
-                index++;
                 continue;
-            }
             NSNotification *notification = [entry->notification retain];
             // Remove before calling out so nested loops cannot deliver this entry twice.
-            [queue removeObjectAtIndex:index];
+            removeEntry(queue, cursor.index - 1, *head);
             @try
             {
                 [_notificationCenter postNotification:notification];
@@ -176,11 +190,11 @@ static void postNotifications(CFRunLoopObserverRef observer, CFRunLoopActivity a
             {
                 [notification release];
             }
-            index = 0;
         }
     }
     @finally
     {
+        *head = cursor.previous;
         if (mode != NULL)
             CFRelease(mode);
     }
@@ -194,18 +208,18 @@ static void postNotifications(CFRunLoopObserverRef observer, CFRunLoopActivity a
     switch (postingStyle)
     {
         case NSPostWhenIdle:
-            if (coalesceNotification(notification, coalesceMask, _asapQueue, NO) ||
-                coalesceNotification(notification, coalesceMask, _idleQueue, NO))
+            if (coalesceNotification(notification, coalesceMask, _asapQueue, NO, _asapDelivery) ||
+                coalesceNotification(notification, coalesceMask, _idleQueue, NO, _idleDelivery))
                 return;
             break;
         case NSPostASAP:
-            coalesceNotification(notification, coalesceMask, _idleQueue, YES);
-            if (coalesceNotification(notification, coalesceMask, _asapQueue, NO))
+            coalesceNotification(notification, coalesceMask, _idleQueue, YES, _idleDelivery);
+            if (coalesceNotification(notification, coalesceMask, _asapQueue, NO, _asapDelivery))
                 return;
             break;
         case NSPostNow:
-            coalesceNotification(notification, coalesceMask, _asapQueue, YES);
-            coalesceNotification(notification, coalesceMask, _idleQueue, YES);
+            coalesceNotification(notification, coalesceMask, _asapQueue, YES, _asapDelivery);
+            coalesceNotification(notification, coalesceMask, _idleQueue, YES, _idleDelivery);
             CFStringRef mode = CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent());
             @try
             {
@@ -240,8 +254,8 @@ static void postNotifications(CFRunLoopObserverRef observer, CFRunLoopActivity a
 
 - (void)dequeueNotificationsMatching:(NSNotification *)notification coalesceMask:(NSUInteger)coalesceMask
 {
-    coalesceNotification(notification, coalesceMask, _asapQueue, YES);
-    coalesceNotification(notification, coalesceMask, _idleQueue, YES);
+    coalesceNotification(notification, coalesceMask, _asapQueue, YES, _asapDelivery);
+    coalesceNotification(notification, coalesceMask, _idleQueue, YES, _idleDelivery);
 }
 
 - (void)_flushNotificationQueue

@@ -84,7 +84,9 @@ static void runMode(NSString *mode){NSString *previous=currentMode;currentMode=m
 @implementation NSThread
 + (id)currentThread{return nil;}- (id)threadDictionary{return nil;}
 @end
-@interface NSNotificationQueue : NSObject { NSNotificationCenter *_notificationCenter;NSMutableArray *_asapQueue,*_asapObs,*_idleQueue,*_idleObs; }
+@interface NSNotificationQueue : NSObject {
+#include "queue-ivars.inc"
+}
 - (id)initWithNotificationCenter:(NSNotificationCenter *)c;
 - (void)enqueueNotification:(NSNotification *)n postingStyle:(NSUInteger)s coalesceMask:(NSUInteger)m forModes:(NSArray *)modes;
 - (void)dequeueNotificationsMatching:(NSNotification *)n coalesceMask:(NSUInteger)m;
@@ -133,6 +135,32 @@ static void CFArrayRemoveValueAtIndex(CFMutableArrayRef a,NSInteger i){assert(i>
 static id removedObservance;
 static BOOL __NSKeyValueCheckObservationInfoForPendingNotification(id o,id v,NSUInteger i){return v!=removedObservance;}
 #include "kvo.inc"
+static NSUInteger modeChecks;
+@interface CountingModes : NSArray @end
+@implementation CountingModes
+- (BOOL)containsObject:(id)o { modeChecks++; return [super containsObject:o]; }
+- (id)copy { return [self retain]; }
+@end
+static void queueScanTests(void) {
+ for (unsigned n=8;n<=32;n*=2) {
+  RecordingCenter *c=[[RecordingCenter alloc] init];
+  NSNotificationQueue *q=[[NSNotificationQueue alloc] initWithNotificationCenter:c];
+  CountingModes *custom=[CountingModes arrayWithObjects:(id[]){@"custom"} count:1];
+  for(unsigned i=0;i<n;i++) [q enqueueNotification:[Note name:@"custom" sender:nil number:i] postingStyle:NSPostASAP coalesceMask:0 forModes:custom];
+  for(unsigned i=0;i<n;i++) [q enqueueNotification:[Note name:@"default" sender:nil number:i] postingStyle:NSPostASAP coalesceMask:0 forModes:nil];
+  modeChecks=0;currentMode=NSDefaultRunLoopMode;
+  [q _postNotifications:NSPostASAP];
+  printf("ineligible=%u eligible=%u delivered=%lu ineligible-mode-checks=%lu\n",n,n,(unsigned long)c->delivered,(unsigned long)modeChecks);
+  fflush(stdout);
+  assert(c->delivered==n);
+  assert(modeChecks<=2*n);
+  for(unsigned i=0;i<n;i++) assert(c->recorded[i]==i);
+  currentMode=@"custom";[q _postNotifications:NSPostASAP];
+  assert(c->delivered==2*n);
+  for(unsigned i=0;i<n;i++) assert(c->recorded[n+i]==i);
+  currentMode=nil;[q release];[c release];[custom release];
+ }
+}
 static void queueTests(void){
  id sender=[NSObject alloc],other=[NSObject alloc];
  for(int style=1;style<=3;style++)for(int mask=0;mask<4;mask++){
@@ -167,6 +195,28 @@ static void queueTests(void){
  [q enqueueNotification:[Note name:@"b" sender:sender number:14] postingStyle:2 coalesceMask:0 forModes:nil];
  runMode(NSDefaultRunLoopMode);assert(c->delivered==4&&c->recorded[2]==13&&c->recorded[3]==14);c->during=NULL;[q release];
 }
+static void queueMutationTests(void) {
+ for (NSUInteger style=NSPostWhenIdle;style<=NSPostASAP;style++) {
+  RecordingCenter *c=[[RecordingCenter alloc] init];
+  NSNotificationQueue *q=[[NSNotificationQueue alloc] initWithNotificationCenter:c];
+  NSArray *custom=[NSArray arrayWithObjects:(id[]){@"custom"} count:1];
+  [q enqueueNotification:[Note name:@"cancel" sender:nil number:1] postingStyle:style coalesceMask:0 forModes:custom];
+  [q enqueueNotification:[Note name:@"custom" sender:nil number:2] postingStyle:style coalesceMask:0 forModes:custom];
+  [q enqueueNotification:[Note name:@"first" sender:nil number:3] postingStyle:style coalesceMask:0 forModes:nil];
+  [q enqueueNotification:[Note name:@"cancel" sender:nil number:4] postingStyle:style coalesceMask:0 forModes:nil];
+  [q enqueueNotification:[Note name:@"last" sender:nil number:5] postingStyle:style coalesceMask:0 forModes:nil];
+  c->during=^(NSNotification *note) {
+   if(note->sequence!=3)return;
+   [q dequeueNotificationsMatching:[Note name:@"cancel" sender:nil number:0] coalesceMask:NSNotificationCoalescingOnName];
+   [q enqueueNotification:[Note name:@"new" sender:nil number:6] postingStyle:style coalesceMask:0 forModes:nil];
+   currentMode=@"custom";[q _postNotifications:style];currentMode=NSDefaultRunLoopMode;
+  };
+  currentMode=NSDefaultRunLoopMode;[q _postNotifications:style];currentMode=nil;
+  assert(c->delivered==4);
+  assert(c->recorded[0]==3&&c->recorded[1]==2&&c->recorded[2]==5&&c->recorded[3]==6);
+  c->during=NULL;[q release];[c release];[custom release];
+ }
+}
 static void centerTests(void){
  for(int named=0;named<2;named++){
  NSNotificationCenter*c=[[NSNotificationCenter alloc] init];_NSNotificationObserver *a=[_NSNotificationObserver alloc],*b=[_NSNotificationObserver alloc],*d=[_NSNotificationObserver alloc];a->_active=b->_active=d->_active=YES;
@@ -183,4 +233,4 @@ static void kvoTests(void){struct PendingArray a={0};id o=[NSObject alloc];NSKey
  push(&a,o,@"value",obs,2);push(&a,o,@"other",obs,1);push(&a,o,@"value",obs,2);assert(pop(&a,o,@"value")==2);assert(a.count==3);push(&a,o,@"other",obs,1);assert(pop(&a,o,@"other")==1);assert(pop(&a,o,@"other")==1);assert(pop(&a,o,@"value")==2);assert(a.count==0);
  push(&a,o,@"value",obs,1);push(&a,o,@"value",obs,2);removedObservance=obs[0];assert(pop(&a,o,@"value")==1);assert(a.count==1);removedObservance=nil;assert(pop(&a,o,@"value")==1);assert(a.count==0);
 }
-int main(int argc,char **argv){[NSString class];assert(argc==2);if(!strcmp(argv[1],"queue"))queueTests();else if(!strcmp(argv[1],"center"))centerTests();else if(!strcmp(argv[1],"join"))joinTests();else if(!strcmp(argv[1],"wait"))waitTests();else if(!strcmp(argv[1],"kvo"))kvoTests();else abort();printf("PASS %s production region\n",argv[1]);}
+int main(int argc,char **argv){[NSString class];assert(argc==2);if(!strcmp(argv[1],"queue"))queueTests();else if(!strcmp(argv[1],"queue-mutations"))queueMutationTests();else if(!strcmp(argv[1],"queue-scans"))queueScanTests();else if(!strcmp(argv[1],"center"))centerTests();else if(!strcmp(argv[1],"join"))joinTests();else if(!strcmp(argv[1],"wait"))waitTests();else if(!strcmp(argv[1],"kvo"))kvoTests();else abort();printf("PASS %s production region\n",argv[1]);}

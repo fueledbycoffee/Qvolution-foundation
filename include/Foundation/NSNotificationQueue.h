@@ -18,9 +18,9 @@ typedef NS_ENUM(NSUInteger, NSNotificationCoalescing) {
 {
     NSNotificationCenter *_notificationCenter;
     NSMutableArray *_asapQueue;
-    NSMutableArray *_asapObs;
+    struct _NSNotificationQueueCursor *_asapDelivery;
     NSMutableArray *_idleQueue;
-    NSMutableArray *_idleObs;
+    struct _NSNotificationQueueCursor *_idleDelivery;
 }
 
 + (id)defaultQueue;
