@@ -595,319 +595,143 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     return last->range.location + last->range.length - 1;
 }
 
-- (NSUInteger)indexGreaterThanIndex:(NSUInteger)value
+// The neighbour queries reduce to two primitives: the first index >= value and the last index <= value.
+// NSNotFound is an ordinary large value here: indexLessThanIndex:NSNotFound is the last index (observed
+// on macOS 12.7.6, tests/indexset-neighbours.m).
+- (NSUInteger)_firstIndexAtOrAfter:(NSUInteger)value
 {
     if (IS_EMPTY(self))
     {
         return NSNotFound;
     }
-    
     if (HAS_SINGLE_RANGE(self))
     {
-        NSUInteger start = SINGLE_RANGE(self).location;
-        NSUInteger end = start + SINGLE_RANGE(self).length - 1;
-        if (value >= end)
+        NSRange r = SINGLE_RANGE(self);
+        return value >= NSMaxRange(r) ? NSNotFound : MAX(value, r.location);
+    }
+    if (BUILD_CACHE(self))
+    {
+        // Ranges are sorted and disjoint: binary search the first one that ends at or after value.
+        CFArrayRef ranges = CACHE(self)->ranges;
+        CFIndex lo = 0, hi = CACHE(self)->rangeCount;
+        while (lo < hi)
+        {
+            CFIndex mid = lo + (hi - lo) / 2;
+            const RangeList *entry = CFArrayGetValueAtIndex(ranges, mid);
+            if (NSMaxRange(entry->range) <= value)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        if (lo == CACHE(self)->rangeCount)
         {
             return NSNotFound;
         }
-        else if (value < start)
+        const RangeList *entry = CFArrayGetValueAtIndex(ranges, lo);
+        return MAX(value, entry->range.location);
+    }
+    RangeList *ptr = NULL;
+    DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
+    {
+        if (value < NSMaxRange(ptr->range))
         {
-            return start;
-        }
-        else
-        {
-            return value + 1;
+            return MAX(value, ptr->range.location);
         }
     }
-    else if (!BUILD_CACHE(self))
+    return NSNotFound;
+}
+
+- (NSUInteger)_lastIndexAtOrBefore:(NSUInteger)value
+{
+    if (IS_EMPTY(self))
     {
-        RangeList *ptr = NULL;
-        DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
-        {
-            NSUInteger start = ptr->range.location;
-            NSUInteger end = start + ptr->range.length - 1;
-            if (value < end)
-            {
-                if (value < start)
-                {
-                    return start;
-                }
-                else
-                {
-                    return value + 1;
-                }
-            }
-        }
         return NSNotFound;
     }
-    else
+    if (HAS_SINGLE_RANGE(self))
     {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 0,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value + 1;
-        }
-        
-        return NSNotFound;
+        NSRange r = SINGLE_RANGE(self);
+        return value < r.location ? NSNotFound : MIN(value, NSMaxRange(r) - 1);
     }
+    if (BUILD_CACHE(self))
+    {
+        // The last range that starts at or before value.
+        CFArrayRef ranges = CACHE(self)->ranges;
+        CFIndex lo = 0, hi = CACHE(self)->rangeCount;
+        while (lo < hi)
+        {
+            CFIndex mid = lo + (hi - lo) / 2;
+            const RangeList *entry = CFArrayGetValueAtIndex(ranges, mid);
+            if (entry->range.location <= value)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        if (lo == 0)
+        {
+            return NSNotFound;
+        }
+        const RangeList *entry = CFArrayGetValueAtIndex(ranges, lo - 1);
+        return MIN(value, NSMaxRange(entry->range) - 1);
+    }
+    NSUInteger found = NSNotFound;
+    RangeList *ptr = NULL;
+    DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
+    {
+        if (ptr->range.location > value)
+        {
+            break;
+        }
+        found = MIN(value, NSMaxRange(ptr->range) - 1);
+    }
+    return found;
+}
+
+- (NSUInteger)indexGreaterThanIndex:(NSUInteger)value
+{
+    return value == NSUIntegerMax ? NSNotFound : [self _firstIndexAtOrAfter:value + 1];
 }
 
 - (NSUInteger)indexGreaterThanOrEqualToIndex:(NSUInteger)value
 {
-    if (IS_EMPTY(self))
-    {
-        return NSNotFound;
-    }
-    
-    if (HAS_SINGLE_RANGE(self))
-    {
-        NSUInteger start = SINGLE_RANGE(self).location;
-        NSUInteger end = start + SINGLE_RANGE(self).length - 1;
-        if (value > end)
-        {
-            return NSNotFound;
-        }
-        else if (value <= start)
-        {
-            return start;
-        }
-        else
-        {
-            return value;
-        }
-    }
-    else if (!BUILD_CACHE(self))
-    {
-        RangeList *ptr = NULL;
-        DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
-        {
-            NSUInteger start = ptr->range.location;
-            NSUInteger end = start + ptr->range.length - 1;
-            if (value < end)
-            {
-                if (value <= start)
-                {
-                    return start;
-                }
-                else
-                {
-                    return value;
-                }
-            }
-        }
-        return NSNotFound;
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 0,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value;
-        }
-        
-        return NSNotFound;
-    }
+    return [self _firstIndexAtOrAfter:value];
 }
 
 - (NSUInteger)indexLessThanIndex:(NSUInteger)value
 {
-    if (IS_EMPTY(self))
-    {
-        return NSNotFound;
-    }
-    
-    if (HAS_SINGLE_RANGE(self))
-    {
-        NSUInteger start = SINGLE_RANGE(self).location;
-        NSUInteger end = start + SINGLE_RANGE(self).length - 1;
-        if (value <= start)
-        {
-            return NSNotFound;
-        }
-        else if (value <= end)
-        {
-            return value - 1;
-        }
-        else
-        {
-            return end;
-        }
-    }
-    else if (!BUILD_CACHE(self))
-    {
-        RangeList *ptr = MULTIPLE_RANGE_DATA(self);
-        if (value <= ptr->range.location)
-        {
-            return NSNotFound;
-        }
-        for (;; ptr = ptr->next)
-        {
-            NSUInteger start = ptr->range.location;
-            NSUInteger end = start + ptr->range.length - 1;
-            if (value <= end)
-            {
-                return value - 1;
-            }
-            if (ptr->next == NULL || value <= ptr->next->range.location)
-            {
-                return end;
-            }
-        }
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 1,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value - 1;
-        }
-        
-        return NSNotFound;
-    }
-    
+    return value == 0 ? NSNotFound : [self _lastIndexAtOrBefore:value - 1];
 }
 
 - (NSUInteger)indexLessThanOrEqualToIndex:(NSUInteger)value
 {
-    if (IS_EMPTY(self))
-    {
-        return NSNotFound;
-    }
-    
-    if (HAS_SINGLE_RANGE(self))
-    {
-        NSUInteger start = SINGLE_RANGE(self).location;
-        NSUInteger end = start + SINGLE_RANGE(self).length - 1;
-        if (value < start)
-        {
-            return NSNotFound;
-        }
-        else if (value <= end)
-        {
-            return value;
-        }
-        else
-        {
-            return end;
-        }
-    }
-    else if (!BUILD_CACHE(self))
-    {
-        RangeList *ptr = MULTIPLE_RANGE_DATA(self);
-        if (value < ptr->range.location)
-        {
-            return NSNotFound;
-        }
-        for (;; ptr = ptr->next)
-        {
-            NSUInteger start = ptr->range.location;
-            NSUInteger end = start + ptr->range.length - 1;
-            if (value <= end)
-            {
-                return value;
-            }
-            if (ptr->next == NULL || value < ptr->next->range.location)
-            {
-                return end;
-            }
-        }
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 1,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value;
-        }
-        
-        return NSNotFound;
-    }
+    return [self _lastIndexAtOrBefore:value];
 }
 
 - (NSUInteger)getIndexes:(NSUInteger *)indexBuffer maxCount:(NSUInteger)bufferSize inIndexRange:(NSRangePointer)range
 {
-    if (IS_EMPTY(self) || bufferSize == 0)
+    // On return the range covers the indexes not yet examined: it starts after the last index
+    // copied. When nothing is copied it is left unchanged (observed on macOS 12.7.6).
+    if (bufferSize == 0 || (range != NULL && range->length == 0))
     {
         return 0;
     }
-    
+    NSUInteger first = range ? range->location : 0;
+    NSUInteger end = range ? NSMaxRange(*range) : NSUIntegerMax; // one past the last index examined
     NSUInteger count = 0;
-    NSUInteger startRange = range ? range->location : 0;
-    NSUInteger endRange = range ? (startRange + range->length - 1) : NSUIntegerMax;
-    if (HAS_SINGLE_RANGE(self))
+    NSUInteger index = [self _firstIndexAtOrAfter:first];
+    while (count < bufferSize && index != NSNotFound && index < end)
     {
-        NSUInteger start = SINGLE_RANGE(self).location;
-        NSUInteger end = start + SINGLE_RANGE(self).length - 1;
-        
-        if (endRange < start || startRange > end)
+        indexBuffer[count++] = index;
+        if (index == NSUIntegerMax - 1)
         {
-            return 0;
+            break;
         }
-        NSUInteger first = MAX(start, startRange);
-        NSUInteger last = MIN(end, endRange);
-        for (NSUInteger i = first; i <= last; i++)
-        {
-            indexBuffer[count++] = i;
-            if (count == bufferSize)
-            {
-                break;
-            }
-        }
-        return count;
+        index = [self _firstIndexAtOrAfter:index + 1];
     }
-    
-    RangeList *ptr = NULL;
-    DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
+    if (count > 0 && range != NULL)
     {
-        NSUInteger start = ptr->range.location;
-        NSUInteger end = start + ptr->range.length - 1;
-        
-        if (endRange < start)
-        {
-            return count;
-        }
-        if (startRange > end)
-        {
-            continue;
-        }
-        NSUInteger first = MAX(start, startRange);
-        NSUInteger last = MIN(end, endRange);
-        for (NSUInteger i = first; i <= last; i++)
-        {
-            indexBuffer[count++] = i;
-            if (count == bufferSize)
-            {
-                return count;
-            }
-        }
+        NSUInteger next = indexBuffer[count - 1] + 1;
+        range->location = next;
+        range->length = end - next;
     }
     return count;
 }
