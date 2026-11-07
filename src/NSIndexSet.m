@@ -248,6 +248,7 @@ static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
         }
         else if (NSContainsRange(ptr->range, range))
         {
+            free(newRange);
             return;
         }
         else
@@ -2012,151 +2013,32 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
     }
 }
 
-// Shift a range, possibly truncating at 0
-static inline void _shiftRange(NSRange *range, NSInteger delta)
-{
-    if (delta < 0 && -delta > range->location)
-    {
-        if (-delta > NSMaxRange(*range))
-        {
-            range->length = 0;
-        }
-        else
-        {
-            range->length = NSMaxRange(*range) + delta;
-        }
-        range->location = 0;
-    }
-    else
-    {
-        range->location += delta;
-    }
-}
-
 - (void)shiftIndexesStartingAtIndex:(NSUInteger)index by:(NSInteger)delta
 {
-    if (IS_EMPTY(self))
+    if (delta == 0 || IS_EMPTY(self)) return;
+    NSUInteger amount = delta > 0 ? (NSUInteger)delta : 0 - (NSUInteger)delta;
+    NSUInteger keepEnd = delta > 0 ? index : (index > amount ? index - amount : 0);
+    NSMutableIndexSet *shifted = [[NSMutableIndexSet alloc] init];
+    @try
     {
-        return;
+        [self enumerateRangesUsingBlock:^(NSRange range, BOOL *stop) {
+            NSUInteger end = NSMaxRange(range);
+            if (range.location < keepEnd)
+                [shifted addIndexesInRange:NSMakeRange(range.location, MIN(end, keepEnd) - range.location)];
+            NSUInteger start = MAX(range.location, index);
+            if (delta < 0) start = MAX(start, amount);
+            if (start >= end) return;
+            if (delta > 0 && end > NSNotFound - amount)
+                [NSException raise:NSRangeException format:@"shift would push an index past NSNotFound - 1"];
+            NSUInteger destination = delta > 0 ? start + amount : start - amount;
+            [shifted addIndexesInRange:NSMakeRange(destination, end - start)];
+        }];
+        [self removeAllIndexes];
+        [self addIndexes:shifted];
     }
-
-    if (delta == 0)
+    @finally
     {
-        return;
-    }
-
-    if (HAS_SINGLE_RANGE(self))
-    {
-        // Index past range results in no change
-        if(NSMaxRange(SINGLE_RANGE(self)) <= index)
-        {
-            return;
-        }
-
-        // Overflow
-        if ((delta > 0) && (NSMaxRange(SINGLE_RANGE(self)) > (NSNotFound - delta - 1)))
-        {
-            [NSException raise:NSRangeException format:@"shift would push range past NSNotFound - 1"];
-            return;
-        }
-
-        // Overlapping negative shift results in one range
-        if ((delta < 0) && -delta <= SINGLE_RANGE(self).length)
-        {
-            _shiftRange(&SINGLE_RANGE(self), delta);
-            return;
-        }
-
-        // Index before single range results in one range (or zero if shifted left too far)
-        if (index <= SINGLE_RANGE(self).location)
-        {
-            _shiftRange(&SINGLE_RANGE(self), delta);
-            if (SINGLE_RANGE(self).length == 0)
-            {
-                CLEAR_RANGES(self);
-            }
-            return;
-        }
-
-        // Otherwise, index inside single range splits into two ranges
-        RangeList *firstRange = malloc(sizeof(RangeList));
-        RangeList *secondRange = malloc(sizeof(RangeList));
-
-        NSRange currentRange = SINGLE_RANGE(self);
-
-        SET_HAS_SINGLE_RANGE(self, NO);
-        // set the cache to NULL so that it does not have junk data from the union
-        RESET_CACHE(self);
-        MULTIPLE_RANGE_DATA(self) = NULL;
-
-        firstRange->range = NSMakeRange(currentRange.location, index - currentRange.location);
-        secondRange->range = NSMakeRange(index, NSMaxRange(currentRange) - index);
-
-        if (delta > 0)
-        {
-            _shiftRange(&secondRange->range, delta);
-        }
-        else
-        {
-            _shiftRange(&firstRange->range, delta);
-        }
-
-        DL_APPEND(MULTIPLE_RANGE_DATA(self), firstRange);
-        DL_APPEND(MULTIPLE_RANGE_DATA(self), secondRange);
-
-        return;
-    }
-    else
-    {
-        CLEAR_CACHE(self);
-
-        RangeList *ptr = [self _pointerToRangeBeforeOrContainingIndex:index];
-        if (ptr == NULL)
-        {
-            ptr = MULTIPLE_RANGE_DATA(self); // start at beginning
-        }
-        if (NSLocationInRange(index, ptr->range) && ptr->range.location != index)
-        {
-            //Break the range up
-            RangeList *second = (RangeList *)malloc(sizeof(RangeList));
-            second->range.location = index;
-            second->range.length = (ptr->range.location + ptr->range.length) - index;
-            second->next = ptr->next;
-
-            ptr->next = second;
-            ptr->range.length = index - ptr->range.location;
-
-            ptr = second;
-        }
-        for (; ptr != NULL; ptr = ptr->next)
-        {
-            if(NSMaxRange(ptr->range) <= index)
-            {
-                continue;
-            }
-            else if ((delta > 0) && ((ptr->range.location + ptr->range.length) > (NSNotFound - delta - 1)))
-            {
-                [NSException raise:NSRangeException format:@"shift would push range past NSNotFound - 1"];
-                return;
-            }
-            else if ((delta < 0) && (ptr->range.location < -delta))
-            {
-                if (ptr->range.location + ptr->range.length <= -delta)
-                {
-                    [self removeIndexesInRange: NSMakeRange(ptr->range.location, ptr->range.length)];
-                }
-                else
-                {
-                    NSUInteger oldLocation = ptr->range.location;
-                    ptr->range.location = 0;
-                    ptr->range.length += (oldLocation + delta);
-                }
-            }
-            else
-            {
-                ptr->range.location += delta;
-            }
-        }
+        [shifted release];
     }
 }
 
