@@ -48,10 +48,17 @@ UChar *_NSMeasurementFormat(const char *locale, const char *unit, int style,
         break;
     }
     if (!measureUnit || U_FAILURE(status)) { delete measureUnit; return NULL; }
-    icu::Measure measure(value, measureUnit, status);
     icu::UnicodeString formatted;
     icu::FieldPosition field(UNUM_MEASURE_UNIT_FIELD);
-    formatter.formatMeasures(&measure, 1, formatted, field, status);
+    if (!numberFormat) {
+        formatted = formatter.getUnitDisplayName(*measureUnit, status);
+        delete measureUnit;
+        field.setBeginIndex(0);
+        field.setEndIndex(formatted.length());
+    } else {
+        icu::Measure measure(value, measureUnit, status);
+        formatter.formatMeasures(&measure, 1, formatted, field, status);
+    }
     if (U_FAILURE(status)) return NULL;
     *length = formatted.length();
     *unitStart = field.getBeginIndex(); *unitEnd = field.getEndIndex();

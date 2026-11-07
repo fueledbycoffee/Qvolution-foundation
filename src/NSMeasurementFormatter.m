@@ -135,7 +135,7 @@ static const char *unitIdentifier(NSUnit *unit)
         return _NSUnitFormatterJoin(_numberFormatter, _unitStyle, value, [unit symbol]);
     }
     int32_t length, unitStart, unitEnd;
-    if (!unitOnly && !_numberFormat) {
+    if (!_numberFormat) {
         const UNumberFormat *numberFormat = [_numberFormatter _measurementNumberFormat];
         UErrorCode status = U_ZERO_ERROR;
         if (numberFormat) _numberFormat = unum_clone(numberFormat, &status);
