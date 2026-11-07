@@ -11,22 +11,42 @@
 @end
 
 @implementation NSListFormatter
-@synthesize itemFormatter = _itemFormatter;
+- (NSFormatter *)itemFormatter
+{
+    @synchronized (self) { return [[_itemFormatter retain] autorelease]; }
+}
+
+- (void)setItemFormatter:(NSFormatter *)itemFormatter
+{
+    NSFormatter *copy = [itemFormatter copy];
+    NSFormatter *previous;
+    @synchronized (self) {
+        previous = _itemFormatter;
+        _itemFormatter = copy;
+    }
+    [previous release];
+}
 
 - (NSLocale *)locale
 {
-    return _locale ?: [NSLocale autoupdatingCurrentLocale];
+    @synchronized (self) {
+        return [[(_locale ?: [NSLocale autoupdatingCurrentLocale]) retain] autorelease];
+    }
 }
 
 - (void)setLocale:(NSLocale *)locale
 {
     NSLocale *copy = [locale copy];
-    [_locale release];
-    _locale = copy;
-    ulistfmt_close(_listFormatter);
-    _listFormatter = NULL;
-    [_listLocaleIdentifier release];
-    _listLocaleIdentifier = nil;
+    NSLocale *previous;
+    @synchronized (self) {
+        previous = _locale;
+        _locale = copy;
+        ulistfmt_close(_listFormatter);
+        _listFormatter = NULL;
+        [_listLocaleIdentifier release];
+        _listLocaleIdentifier = nil;
+    }
+    [previous release];
 }
 
 - (void)dealloc
@@ -54,12 +74,23 @@
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
-    if ([coder allowsKeyedCoding]) {
-        [coder encodeObject:_locale forKey:@"locale"];
-        [coder encodeObject:_itemFormatter forKey:@"itemFormatter"];
-    } else {
-        [coder encodeObject:_locale];
-        [coder encodeObject:_itemFormatter];
+    NSLocale *locale;
+    NSFormatter *itemFormatter;
+    @synchronized (self) {
+        locale = [_locale retain];
+        itemFormatter = [_itemFormatter retain];
+    }
+    @try {
+        if ([coder allowsKeyedCoding]) {
+            [coder encodeObject:locale forKey:@"locale"];
+            [coder encodeObject:itemFormatter forKey:@"itemFormatter"];
+        } else {
+            [coder encodeObject:locale];
+            [coder encodeObject:itemFormatter];
+        }
+    } @finally {
+        [locale release];
+        [itemFormatter release];
     }
 }
 
@@ -77,25 +108,21 @@
     NSUInteger count = [items count];
     if (!count) return @"";
     if (count > INT32_MAX || count > SIZE_MAX / sizeof(UChar *)) return nil;
-    NSLocale *locale = [self locale];
-    NSString *identifier = [locale localeIdentifier];
-    if (!_listFormatter || ![_listLocaleIdentifier isEqualToString:identifier]) {
-        UErrorCode status = U_ZERO_ERROR;
-        UListFormatter *formatter = ulistfmt_open([identifier UTF8String], &status);
-        if (U_FAILURE(status)) return nil;
-        ulistfmt_close(_listFormatter);
-        _listFormatter = formatter;
-        [_listLocaleIdentifier release];
-        _listLocaleIdentifier = [identifier copy];
-    }
     UChar **characters = calloc(count, sizeof(*characters));
     int32_t *lengths = calloc(count, sizeof(*lengths));
     if (!characters || !lengths) { free(characters); free(lengths); return nil; }
     NSString *result = nil;
+    NSLocale *locale = nil;
+    NSFormatter *itemFormatter = nil;
     @try {
+        @synchronized (self) {
+            locale = [[self locale] retain];
+            itemFormatter = [[self itemFormatter] retain];
+        }
+        NSString *identifier = [locale localeIdentifier];
         for (NSUInteger i = 0; i < count; ++i) {
             id item = [items objectAtIndex:i];
-            NSString *text = [_itemFormatter stringForObjectValue:item];
+            NSString *text = [itemFormatter stringForObjectValue:item];
             if (!text) {
                 if ([item respondsToSelector:@selector(descriptionWithLocale:)])
                     text = [item descriptionWithLocale:locale];
@@ -113,13 +140,32 @@
             [text getCharacters:characters[i] range:NSMakeRange(0, length)];
         }
         int32_t length = 0;
-        UChar *buffer = NSListFormatItems(_listFormatter, uloc_isRightToLeft([identifier UTF8String]),
-                                        (const UChar *const *)characters, lengths, (int32_t)count, &length);
+        UChar *buffer;
+        @synchronized (self) {
+            if (!_listFormatter || ![_listLocaleIdentifier isEqualToString:identifier]) {
+                NSString *cacheIdentifier = [identifier copy];
+                UErrorCode status = U_ZERO_ERROR;
+                UListFormatter *formatter = ulistfmt_open([identifier UTF8String], &status);
+                if (U_FAILURE(status)) {
+                    ulistfmt_close(formatter);
+                    [cacheIdentifier release];
+                    return nil;
+                }
+                ulistfmt_close(_listFormatter);
+                _listFormatter = formatter;
+                [_listLocaleIdentifier release];
+                _listLocaleIdentifier = cacheIdentifier;
+            }
+            buffer = NSListFormatItems(_listFormatter, uloc_isRightToLeft([identifier UTF8String]),
+                                       (const UChar *const *)characters, lengths, (int32_t)count, &length);
+        }
         if (buffer) {
             @try { result = [NSString stringWithCharacters:buffer length:length]; }
             @finally { free(buffer); }
         }
     } @finally {
+        [locale release];
+        [itemFormatter release];
         for (NSUInteger i = 0; i < count; ++i) free(characters[i]);
         free(characters);
         free(lengths);
