@@ -492,17 +492,17 @@ static inline const char *nextType(const char *type)
 
 - (CGRect)decodeRectForKey:(NSString *)key
 {
-    return NSRectToCGRect(NSRectFromString([self decodeObjectForKey:key]));
+    return NSRectToCGRect(NSRectFromString([self decodeObjectOfClass:[NSString class] forKey:key]));
 }
 
 - (CGSize)decodeSizeForKey:(NSString *)key
 {
-    return NSSizeToCGSize(NSSizeFromString([self decodeObjectForKey:key]));
+    return NSSizeToCGSize(NSSizeFromString([self decodeObjectOfClass:[NSString class] forKey:key]));
 }
 
 - (CGPoint)decodePointForKey:(NSString *)key
 {
-    return NSPointToCGPoint(NSPointFromString([self decodeObjectForKey:key]));
+    return NSPointToCGPoint(NSPointFromString([self decodeObjectOfClass:[NSString class] forKey:key]));
 }
 
 - (void)encodeRect:(CGRect)r forKey:(NSString *)key

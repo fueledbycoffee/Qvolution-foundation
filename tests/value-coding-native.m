@@ -57,6 +57,7 @@ static id NS_special=@"NS.special",NS_rangeval_location=@"NS.rangeval.location",
 static id NS_atval_a,NS_atval_b,NS_atval_c,NS_atval_d,NS_atval_tx,NS_atval_ty,NS_edgeval_top,NS_edgeval_left,NS_edgeval_bottom,NS_edgeval_right;
 @interface NSCoder:NSObject { @public id keys[16],objects[16];NSInteger integers[16];unsigned count;unsigned char bytes[256];NSUInteger length;BOOL keyed; }
 - (void)decodeValueOfObjCType:(const char *)t at:(void *)p;
+- (void)encodeValueOfObjCType:(const char *)t at:(const void *)p;
 - (BOOL)allowsKeyedCoding; - (BOOL)containsValueForKey:(id)key;
 - (void)encodeInteger:(NSInteger)n forKey:(id)k; - (NSInteger)decodeIntegerForKey:(id)k;
 - (void)encodeObject:(id)x forKey:(id)k; - (id)decodeObjectForKey:(id)k; - (id)decodeObjectOfClass:(Class)c forKey:(id)k;
@@ -75,7 +76,14 @@ static CGSize NSSizeFromString(NSString *s){CGPoint p=NSPointFromString(s);retur
 #define NSPointToCGPoint(x) (x)
 #define NSSizeToCGSize(x) (x)
 @implementation NSCoder
-- (void)decodeValueOfObjCType:(const char *)t at:(void *)p{if(!strcmp(t,@encode(char *))) *(char **)p=NULL;else @throw [NSException alloc];}
+- (void)encodeValueOfObjCType:(const char *)t at:(const void *)p {
+ if(!strcmp(t,@encode(char *))) [self encodeObject:[NSString stringWithUTF8String:*(const char **)p] forKey:@"type"];
+ else {NSGetSizeAndAlignment(t,&length,NULL);assert(length<=sizeof bytes);memcpy(bytes,p,length);}
+}
+- (void)decodeValueOfObjCType:(const char *)t at:(void *)p {
+ if(!strcmp(t,@encode(char *))) *(const char **)p=[[self decodeObjectOfClass:[NSString class] forKey:@"type"] UTF8String];
+ else {NSUInteger n=0;NSGetSizeAndAlignment(t,&n,NULL);assert(n==length);memcpy(p,bytes,n);}
+}
 - (BOOL)allowsKeyedCoding{return keyed;}
 - (unsigned)slot:(id)key{for(unsigned i=0;i<count;i++)if([keys[i] isEqual:key])return i;assert(count<16);keys[count]=key;return count++;}
 - (BOOL)containsValueForKey:(id)k{for(unsigned i=0;i<count;i++)if([keys[i] isEqual:k])return YES;return NO;}
@@ -130,7 +138,11 @@ int main(void){
  for(unsigned i=0;i<4;i++){
   x=_NSNewValue(&values[i],@encode(int));NSCoder *c=[NSCoder alloc];c->keyed=YES;[x encodeWithCoder:c];
   NSValue *decoded=[[NSValue alloc]initWithCoder:c];CHECK(decoded!=nil);int got=0;[decoded getValue:&got size:sizeof got];CHECK(got==values[i]&&[x isEqualToValue:decoded]);
-  c->length--;BOOL threw=NO;@try{(void)[[NSValue alloc]initWithCoder:c];}@catch(id e){threw=YES;}CHECK(threw);
+  for(NSUInteger size=0;size<=8;size++) {
+   unsigned char buffer[16];memset(buffer,0xa5,sizeof buffer);BOOL threw=NO;
+   @try{[decoded getValue:buffer size:size];}@catch(id e){threw=YES;}
+   CHECK(threw==(size!=sizeof(int)));CHECK(buffer[sizeof(int)]==0xa5);
+  }
  }
  for(unsigned i=0;i<4;i++){
   NSCoder *c=[NSCoder alloc];c->keyed=YES;[c encodePoint:(CGPoint){i,-(double)i} forKey:@"point"];[c encodeSize:(CGSize){i+1,i+2} forKey:@"size"];

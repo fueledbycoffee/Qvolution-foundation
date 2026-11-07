@@ -24,7 +24,7 @@ code=(r/'tests/value-coding-native.m').read_text()
 replacements={
  'BASE_METHODS': ''.join(method(base,k) for k in ['- (id)initWithCoder:', '- (void)encodeWithCoder:', '- (id)copyWithZone:']) + (method(base,'- (void)getValue:(void *)value size:') if '- (void)getValue:(void *)value size:' in base else ''),
  'VALUE_METHODS': ''.join(method(ext,k) for k in ['- (NSRange)rangeValue','- (CGPoint)pointValue','- (CGSize)sizeValue','- (CGRect)rectValue','- (BOOL)isEqual:', '- (BOOL)isEqualToValue:']),
- 'CONCRETE_METHODS': ''.join(method(concrete,k) for k in ['- (void)encodeWithCoder:', '- (BOOL)isEqualToValue:', '- (const char *)objCType', '- (void)getValue:', '- (const void *)_value']),
+ 'CONCRETE_METHODS': (method(concrete,'- (id)initWithCoder:') if '- (id)initWithCoder:' in concrete else '') + ''.join(method(concrete,k) for k in ['- (void)encodeWithCoder:', '- (BOOL)isEqualToValue:', '- (const char *)objCType', '- (void)getValue:', '- (const void *)_value']),
  'DECODE_FUNCTION':method(s[s.index('static id newDecodedValue(NSCoder *aCoder)'):], 'static id newDecodedValue('),
  'GEOMETRY_METHODS': ''.join(method(coder,k) for k in ['- (CGPoint)decodePointForKey:', '- (CGSize)decodeSizeForKey:', '- (void)encodePoint:(CGPoint)pt forKey:', '- (void)encodeSize:(CGSize)sz forKey:']),
  'EQUALITY_ONLY': '1' if a.case=='equality' else '0',

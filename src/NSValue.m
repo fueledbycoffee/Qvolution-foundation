@@ -19,6 +19,7 @@
 #import <CoreGraphics/CGAffineTransform.h>
 
 static NSValue *_NSNewValue(void *value, const char *type);
+static id newDecodedValue(NSCoder *coder);
 
 @implementation NSValue
 
@@ -82,46 +83,8 @@ static NSValue *_NSNewValue(void *value, const char *type);
 
 - (id)initWithCoder:(NSCoder *)aDecoder
 {
-    [self release]; // we are going to create a new value no matter what
-
-    uint8_t stack_val[MAX_STACK];
-    uint8_t *val = &stack_val[0];
-
-    char *type = NULL;
-    NSUInteger size = 0;
-    [aDecoder decodeValueOfObjCType:@encode(char *) at:&type];
-    if (type == NULL)
-    {
-        return nil;
-    }
-    NSGetSizeAndAlignment(type, &size, NULL);
-    if (size == 0)
-    {
-        free(type);
-        return nil;
-    }
-
-    if (size > MAX_STACK)
-    {
-        val = malloc(size);
-        if (val == NULL)
-        {
-            free(type);
-            return nil;
-        }
-    }
-
-    [aDecoder decodeValueOfObjCType:type at:val];
-    
-    NSValue *value = _NSNewValue(val, type);
-
-    if (val != NULL && val != &stack_val[0])
-    {
-        free(val);
-    }
-    free(type);
-
-    return value;
+    [self release];
+    return newDecodedValue(aDecoder);
 }
 
 - (void)encodeWithCoder:(NSCoder *)aCoder
@@ -356,8 +319,8 @@ static id newDecodedValue(NSCoder *aCoder)
             }
             case NSRangeType: {
                 NSRange r;
-                r.location = [aCoder decodeIntegerForKey:NS_rangeval_location];
-                r.length = [aCoder decodeIntegerForKey:NS_rangeval_length];
+                r.location = [[aCoder decodeObjectOfClass:[NSNumber class] forKey:NS_rangeval_location] unsignedIntegerValue];
+                r.length = [[aCoder decodeObjectOfClass:[NSNumber class] forKey:NS_rangeval_length] unsignedIntegerValue];
                 return createValue((uint8_t *)&r, @encode(NSRange), sizeof(NSRange), flags);
             }
             case NSAffineTransformType: {
@@ -440,7 +403,7 @@ static id newDecodedValue(NSCoder *aCoder)
             val = (uint8_t *)malloc(size);
             if (val == NULL)
             {
-                free(type);
+                if (![aCoder allowsKeyedCoding]) free(type);
                 return nil;
             }
         }
@@ -450,7 +413,7 @@ static id newDecodedValue(NSCoder *aCoder)
         {
             free(val);
         }
-        free(type);
+        if (![aCoder allowsKeyedCoding]) free(type);
         return value;
     }
 }
@@ -650,6 +613,12 @@ static id newDecodedValue(NSCoder *aCoder)
 @end
 
 @implementation NSConcreteValue
+
+- (id)initWithCoder:(NSCoder *)coder
+{
+    [self release];
+    return newDecodedValue(coder);
+}
 
 + (BOOL)supportsSecureCoding
 {
