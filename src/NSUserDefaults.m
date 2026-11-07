@@ -9,6 +9,7 @@
 #include "ForFoundationOnly.h"
 #import <Foundation/NSUserDefaults.h>
 #import <Foundation/NSPathUtilities.h>
+#import <Foundation/NSArray.h>
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSNotification.h>
 #import <Foundation/NSURL.h>
@@ -191,7 +192,34 @@ static void initQueues() {
 
 - (void)registerDefaults:(NSDictionary *)dictionary
 {
-   [self setVolatileDomain: dictionary forName: NSRegistrationDomain];
+    // Registration can change what -objectForKey: answers (for keys no other domain
+    // sets), so observers of those keys see a change, and the did-change notification
+    // is posted for every registration, as on macOS (rung 4: qv-diff
+    // defaults-change-signals.m, macOS 12.7.6). This costs one search-list lookup per
+    // registered key.
+    NSMutableArray *changed = [NSMutableArray array];
+    NSDictionary *registered = [self volatileDomainForName: NSRegistrationDomain];
+    for (NSString *key in dictionary)
+    {
+        id old = [self objectForKey:key];
+        id oldRegistered = registered[key];
+        // A value from the argument or application domain shadows the registration.
+        BOOL shadowed = old != nil && !(oldRegistered != nil && [oldRegistered isEqual:old]);
+        if (!shadowed && (old == nil || ![old isEqual:dictionary[key]]))
+        {
+            [changed addObject:key];
+        }
+    }
+    for (NSString *key in changed)
+    {
+        [self willChangeValueForKey:key];
+    }
+    [self setVolatileDomain: dictionary forName: NSRegistrationDomain];
+    for (NSString *key in [changed reverseObjectEnumerator])
+    {
+        [self didChangeValueForKey:key];
+    }
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSUserDefaultsDidChangeNotification object:self userInfo:nil];
 }
 
 - (void)removeObjectForKey:(NSString *)key
