@@ -7,7 +7,7 @@ python3 tests/run-order-native.py --core-source /path/to/corefoundation --out /p
 ```
 
 The runner extracts production regions verbatim from Foundation and CoreFoundation.
-The baseline is Foundation c55eb6b and CoreFoundation 3f34c24 (frozen r6 inputs).
+The baseline is Foundation ab88220 and CoreFoundation 3f34c24 (frozen r7 inputs).
 Each baseline section must abort at an assertion; each patched section must pass.
 Sections cover configured notification centers, FIFO/coalescing masks, modes,
 cancellation, queue disposal, nested delivery, both observer-removal forms,
