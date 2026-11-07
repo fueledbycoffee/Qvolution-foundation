@@ -14,6 +14,7 @@
 #import <Foundation/NSLocale.h>
 #import <Foundation/NSException.h>
 #import <Foundation/NSArray.h>
+#import <Foundation/NSCharacterSet.h>
 #import <Foundation/NSDecimalNumber.h>
 #import "NSFormatterInternal.h"
 #include <math.h>
@@ -228,11 +229,13 @@ static NSNumberFormatterBehavior defaultBehavior = NSNumberFormatterBehaviorDefa
 
 - (NSNumber *)numberFromString:(NSString *)string
 {
-    if (string == nil) {
-        return nil;
-    }
-    [self _regenerateFormatter];
-    return [(NSNumber *)CFNumberFormatterCreateNumberFromString(kCFAllocatorDefault, _formatter, (CFStringRef)string, NULL, [_attributes[@"parseIntegersOnly"] boolValue] ? kCFNumberFormatterParseIntegersOnly : 0) autorelease];
+    if (!string) return nil;
+    string = [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSRange range = NSMakeRange(0, [string length]);
+    id number = nil;
+    if (![self getObjectValue:&number forString:string range:&range error:NULL] ||
+        range.location != 0 || range.length != [string length]) return nil;
+    return number;
 }
 
 - (NSNumberFormatterStyle)numberStyle
