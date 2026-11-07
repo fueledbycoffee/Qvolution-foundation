@@ -46,9 +46,15 @@ static void initQueues() {
     pthread_mutex_lock(&defaultsLock);
     if (standardDefaults == nil)
     {
-        standardDefaults = [[NSUserDefaults alloc] init];
-        [standardDefaults setObject:[NSLocale preferredLanguages] forKey:@"AppleLanguages"];
-        [standardDefaults setObject:[[NSLocale systemLocale] languageCode] forKey:@"AppleLocale"];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] init];
+        NSArray *languages = [NSLocale preferredLanguages];
+        NSString *locale = [[NSLocale systemLocale] languageCode];
+        // Seed before publication without invoking observers under defaultsLock.
+        dispatch_sync(synchronizeQueue, ^{
+            CFPreferencesSetAppValue((CFStringRef)@"AppleLanguages", (CFTypeRef)languages, kCFPreferencesCurrentApplication);
+            CFPreferencesSetAppValue((CFStringRef)@"AppleLocale", (CFTypeRef)locale, kCFPreferencesCurrentApplication);
+        });
+        standardDefaults = defaults;
     }
     pthread_mutex_unlock(&defaultsLock);
     return standardDefaults;
