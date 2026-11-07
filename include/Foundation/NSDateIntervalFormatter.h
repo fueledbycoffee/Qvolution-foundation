@@ -33,10 +33,6 @@ typedef NS_ENUM(NSUInteger, NSDateIntervalFormatterStyle) {
     NSDateIntervalFormatterFullStyle   = 4
 };
 
-// Fidelity note: this formats each endpoint with NSDateFormatter and joins them
-// with " - ". macOS elides components the two endpoints share ("Jan 1 - 3, 2024")
-// and uses an en dash. Both endpoints are always rendered truthfully; only the
-// joining and the eliding differ.
 @interface NSDateIntervalFormatter : NSFormatter
 {
     NSLocale *_locale;
@@ -45,6 +41,7 @@ typedef NS_ENUM(NSUInteger, NSDateIntervalFormatterStyle) {
     NSString *_dateTemplate;
     NSDateIntervalFormatterStyle _dateStyle;
     NSDateIntervalFormatterStyle _timeStyle;
+    void *_intervalFormatter;
 }
 
 // (copy) rather than (retain): these setters genuinely copy, unlike

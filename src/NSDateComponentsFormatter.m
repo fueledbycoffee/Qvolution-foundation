@@ -585,26 +585,18 @@ static NSString *NSDCFFormatPositional(const char *locale, const double *values,
         shownCount += shown[i];
     }
 
-    // Keep the smallest unit ("0s"); a positional clock keeps two of its units ("0:05").
+    // An all-zero duration keeps its smallest unit.
     if (shownCount == 0)
     {
         shown[smallest] = YES;
         shownCount = 1;
-    }
-    for (int i = smallest; positional && i >= NSDCFHour && shownCount < 2; i--)
-    {
-        if (allowed[i] && !shown[i] && (firstNonZero < 0 || i < firstNonZero))
-        {
-            shown[i] = YES;
-            shownCount++;
-        }
     }
 
     for (int i = 0; negative && firstNonZero >= 0 && i < NSDCFUnitCount; i++)
     {
         if (shown[i])
         {
-            values[i] = -values[i];
+            values[i] = values[i] == 0 ? 0 : -values[i];
             break;
         }
     }
@@ -630,6 +622,24 @@ static NSString *NSDCFFormatPositional(const char *locale, const double *values,
     {
         [NSException raise:NSInvalidArgumentException
                     format:@"NSDateComponentsFormatter: dropping minutes between hours and seconds is ambiguous in the positional style"];
+    }
+    BOOL secondsOnly = hasSecond;
+    for (int i = 0; i < NSDCFSecond; i++)
+    {
+        secondsOnly = secondsOnly && !shown[i];
+    }
+    if (secondsOnly)
+    {
+        UErrorCode status = U_ZERO_ERROR;
+        UNumberFormat *number = unum_open(UNUM_DECIMAL, NULL, 0, locale, NULL, &status);
+        if (U_FAILURE(status))
+        {
+            return nil;
+        }
+        unum_setAttribute(number, UNUM_GROUPING_USED, 0);
+        NSString *result = NSDCFFormatNumber(number, values[NSDCFSecond], 1);
+        unum_close(number);
+        return result;
     }
     BOOL numeric = hasHour + hasMinute + hasSecond >= 2;
     BOOL padAll = (_zeroFormattingBehavior & NSDateComponentsFormatterZeroFormattingBehaviorPad) != 0;
