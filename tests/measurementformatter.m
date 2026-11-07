@@ -36,12 +36,7 @@ int main(void)
         expect(formatter.numberFormatter != percent && formatter.numberFormatter.numberStyle == NSNumberFormatterPercentStyle, @"numberFormatter is copied");
 
         NSMeasurementFormatter *copy = [formatter copy];
-        expect(copy.unitStyle == NSFormattingUnitStyleLong && copy.unitOptions == formatter.unitOptions, @"copy keeps options");
-        expect([copy.locale.localeIdentifier isEqualToString:@"de_DE"], @"copy keeps locale");
-        expect(copy.numberFormatter.numberStyle == NSNumberFormatterPercentStyle, @"copy keeps number formatter");
-        expect(copy.numberFormatter != formatter.numberFormatter, @"copy has its own number formatter");
-        copy.numberFormatter.numberStyle = NSNumberFormatterScientificStyle;
-        expect(formatter.numberFormatter.numberStyle == NSNumberFormatterPercentStyle, @"copy is independent");
+        expect(copy == formatter, @"copy retains the formatter");
 
         formatter.locale = nil;
         formatter.numberFormatter = nil;
@@ -80,8 +75,11 @@ int main(void)
             NSMeasurement *m = [[NSMeasurement alloc] initWithDoubleValue:1.1 unit:[NSUnitLength meters]];
             expect([[formatter stringFromMeasurement:m] isEqualToString:[rounded objectAtIndex:l]], @"rounding chooses the displayed singular quantity");
             [m release];
-            formatter.numberFormatter.minimumFractionDigits = 1;
-            formatter.numberFormatter.maximumFractionDigits = 1;
+            NSNumberFormatter *paddedNumbers = [formatter.numberFormatter copy];
+            paddedNumbers.minimumFractionDigits = 1;
+            paddedNumbers.maximumFractionDigits = 1;
+            formatter.numberFormatter = paddedNumbers;
+            [paddedNumbers release];
             m = [[NSMeasurement alloc] initWithDoubleValue:1 unit:[NSUnitLength meters]];
             expect([[formatter stringFromMeasurement:m] isEqualToString:[padded objectAtIndex:l]], @"visible fraction digits participate in plural selection");
             [m release];

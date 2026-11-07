@@ -16,6 +16,7 @@ typedef NS_OPTIONS(NSUInteger, NSMeasurementFormatterUnitOptions) {
     NSFormattingUnitStyle _unitStyle;
     NSLocale *_locale;
     NSNumberFormatter *_numberFormatter;
+    void *_numberFormat;
 }
 
 - (NSString *)stringFromMeasurement:(NSMeasurement *)measurement;

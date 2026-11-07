@@ -4,9 +4,11 @@ root=pathlib.Path(__file__).resolve().parents[1]
 lane=root.parent/'native-round3'
 lane.mkdir(exist_ok=True)
 import argparse
-args=argparse.ArgumentParser();args.add_argument('--baseline',action='store_true');opt=args.parse_args()
-label='baseline' if opt.baseline else 'candidate'
+args=argparse.ArgumentParser();args.add_argument('--baseline',action='store_true');args.add_argument('--source-ref');args.add_argument('--cache-contract',action='store_true');opt=args.parse_args()
+label=('baseline' if opt.baseline else opt.source_ref or 'candidate')+('-cache' if opt.cache_contract else '')
 def production(name):
+    if opt.source_ref:
+        return subprocess.check_output(['git','-C',str(root),'show',opt.source_ref+':'+name],text=True)
     if opt.baseline:
         return subprocess.check_output(['git','-C',str(root),'show','131b123:'+name],text=True)
     return (root/name).read_text()
@@ -121,6 +123,37 @@ int main(void){
  return failures?1:0;
 }
 '''
+if not opt.baseline:
+    start=s.index('// Darwin auto-synthesizes these accessors;')
+    end=s.index('static int failures;',start)
+    s=s[:start]+s[end:]
+if opt.cache_contract:
+    s=s[:s.index('int main(void){')]+r"""
+static void expectFormatted(NSMeasurementFormatter *f,NSMeasurement *m,const char *expected) {
+ const char *actual=[[f stringFromMeasurement:m] UTF8String];
+ printf("cache: %s (expected %s)\n",actual,expected);
+ if(strcmp(actual,expected))failures++;
+}
+int main(void){
+ fixtureLocale="en_US";
+ NSMeasurementFormatter *f=[[NSMeasurementFormatter alloc]init];
+ [f setUnitOptions:NSMeasurementFormatterUnitOptionsProvidedUnit];
+ [f setUnitStyle:NSFormattingUnitStyleLong];
+ NSNumberFormatter *n=[f numberFormatter];
+ unum_setAttribute(n->nf,UNUM_MAX_FRACTION_DIGITS,0);
+ NSMeasurement *m=[[NSMeasurement alloc]initWithDoubleValue:1.1 unit:[NSUnitLength meters]];
+ expectFormatted(f,m,"1 meter");
+ unum_setAttribute(n->nf,UNUM_MIN_FRACTION_DIGITS,2);
+ unum_setAttribute(n->nf,UNUM_MAX_FRACTION_DIGITS,2);
+ expectFormatted(f,m,"1 meter");
+ [f setUnitStyle:NSFormattingUnitStyleMedium];
+ expectFormatted(f,m,"1.10 m");
+ [f setUnitStyle:NSFormattingUnitStyleLong];
+ expectFormatted(f,m,"1.10 meters");
+ printf("%d production measurement cache failures\n",failures);
+ return failures?1:0;
+}
+"""
 src=lane/(label+'.m');src.write_text(s);exe=lane/label
 inc=subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip()
 helper=lane/(label+('.c' if opt.baseline else '.cpp'))

@@ -50,7 +50,27 @@ static const char *unitIdentifier(NSUnit *unit)
 }
 
 @implementation NSMeasurementFormatter
-@synthesize unitOptions = _unitOptions, unitStyle = _unitStyle;
+- (void)_invalidateNumberFormat
+{
+    unum_close(_numberFormat);
+    _numberFormat = NULL;
+}
+
+- (NSMeasurementFormatterUnitOptions)unitOptions { return _unitOptions; }
+- (void)setUnitOptions:(NSMeasurementFormatterUnitOptions)options
+{
+    if (_unitOptions == options) return;
+    _unitOptions = options;
+    [self _invalidateNumberFormat];
+}
+
+- (NSFormattingUnitStyle)unitStyle { return _unitStyle; }
+- (void)setUnitStyle:(NSFormattingUnitStyle)style
+{
+    if (_unitStyle == style) return;
+    _unitStyle = style;
+    [self _invalidateNumberFormat];
+}
 
 - (instancetype)init
 {
@@ -67,6 +87,7 @@ static const char *unitIdentifier(NSUnit *unit)
 
 - (void)dealloc
 {
+    [self _invalidateNumberFormat];
     [_locale release];
     [_numberFormatter release];
     [super dealloc];
@@ -79,9 +100,14 @@ static const char *unitIdentifier(NSUnit *unit)
 
 - (void)setLocale:(NSLocale *)locale
 {
+    locale = locale ?: [NSLocale currentLocale];
+    if ([_locale isEqual:locale]) return;
     NSLocale *old = _locale;
-    _locale = [locale ?: [NSLocale currentLocale] copy];
+    _locale = [locale copy];
     [old release];
+    [self _invalidateNumberFormat];
+    [_numberFormatter release];
+    _numberFormatter = _NSUnitFormatterNewNumberFormatter();
     [_numberFormatter setLocale:_locale];
 }
 
@@ -92,20 +118,12 @@ static const char *unitIdentifier(NSUnit *unit)
 
 - (void)setNumberFormatter:(NSNumberFormatter *)numberFormatter
 {
+    if (numberFormatter == _numberFormatter) return;
+    [self _invalidateNumberFormat];
     NSNumberFormatter *old = _numberFormatter;
     _numberFormatter = numberFormatter != nil ? [numberFormatter copy] : _NSUnitFormatterNewNumberFormatter();
     if (numberFormatter == nil) [_numberFormatter setLocale:_locale];
     [old release];
-}
-
-- (id)copyWithZone:(NSZone *)zone
-{
-    NSMeasurementFormatter *copy = [[[self class] allocWithZone:zone] init];
-    copy->_unitOptions = _unitOptions;
-    copy->_unitStyle = _unitStyle;
-    [copy setLocale:_locale];
-    [copy setNumberFormatter:_numberFormatter];
-    return copy;
 }
 
 - (NSString *)_stringFromValue:(double)value unit:(NSUnit *)unit unitOnly:(BOOL)unitOnly
@@ -117,9 +135,14 @@ static const char *unitIdentifier(NSUnit *unit)
         return _NSUnitFormatterJoin(_numberFormatter, _unitStyle, value, [unit symbol]);
     }
     int32_t length, unitStart, unitEnd;
-    const UNumberFormat *numberFormat = unitOnly ? NULL : [_numberFormatter _measurementNumberFormat];
-    if (!unitOnly && !numberFormat)
-        [NSException raise:NSInternalInconsistencyException format:@"Unable to configure measurement number formatter"];
+    if (!unitOnly && !_numberFormat) {
+        const UNumberFormat *numberFormat = [_numberFormatter _measurementNumberFormat];
+        UErrorCode status = U_ZERO_ERROR;
+        if (numberFormat) _numberFormat = unum_clone(numberFormat, &status);
+        if (!_numberFormat || U_FAILURE(status))
+            [NSException raise:NSInternalInconsistencyException format:@"Unable to configure measurement number formatter"];
+    }
+    const UNumberFormat *numberFormat = unitOnly ? NULL : _numberFormat;
     UChar *buffer = _NSMeasurementFormat([[_locale localeIdentifier] UTF8String], identifier, _unitStyle,
         value, numberFormat,
         &length, &unitStart, &unitEnd);
