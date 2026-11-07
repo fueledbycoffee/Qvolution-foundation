@@ -9,6 +9,7 @@
 #import "NSMeasurementFormatting.h"
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 @interface NSNumberFormatter (NSMeasurementFormatting)
 - (const UNumberFormat *)_measurementNumberFormat;
@@ -23,7 +24,9 @@ static const char *unitIdentifier(NSUnit *unit)
     NSString *symbol = [unit symbol];
     if ([unit isKindOfClass:[NSUnitLength class]] && [linear constant] == 0) {
         static const struct { NSString *symbol; const char *identifier; double coefficient; } units[] = {
-            {@"km", "length-kilometer", 1000}, {@"m", "length-meter", 1},
+            {@"Mm", "length-megameter", 1e6}, {@"km", "length-kilometer", 1000},
+            {@"hm", "length-hectometer", 100}, {@"dam", "length-decameter", 10},
+            {@"m", "length-meter", 1},
             {@"dm", "length-decimeter", .1}, {@"cm", "length-centimeter", .01},
             {@"mm", "length-millimeter", .001}, {@"µm", "length-micrometer", 1e-6},
             {@"nm", "length-nanometer", 1e-9}, {@"pm", "length-picometer", 1e-12},
@@ -47,6 +50,20 @@ static const char *unitIdentifier(NSUnit *unit)
             return "temperature-kelvin";
     }
     return NULL;
+}
+
+static int naturalLengthScale(NSUnit *unit)
+{
+    static const char *units[] = {
+        "length-kilometer", "length-meter", "length-decimeter", "length-centimeter",
+        "length-millimeter", "length-micrometer", "length-nanometer", "length-picometer",
+        "length-inch", "length-foot", "length-yard", "length-mile", "length-nautical-mile",
+        "length-fathom", "length-furlong"
+    };
+    const char *identifier = unitIdentifier(unit);
+    if (identifier) for (NSUInteger i = 0; i < sizeof(units)/sizeof(units[0]); ++i)
+        if (!strcmp(identifier, units[i])) return i < 8 ? 1 : 2;
+    return 0;
 }
 
 @implementation NSMeasurementFormatter
@@ -134,6 +151,8 @@ static const char *unitIdentifier(NSUnit *unit)
         if (unitOnly) return [unit symbol];
         return _NSUnitFormatterJoin(_numberFormatter, _unitStyle, value, [unit symbol]);
     }
+    if (!unitOnly && (_unitOptions & NSMeasurementFormatterUnitOptionsTemperatureWithoutUnit) &&
+        [unit isKindOfClass:[NSUnitTemperature class]]) identifier = "temperature-generic";
     int32_t length, unitStart, unitEnd;
     if (!_numberFormat) {
         const UNumberFormat *numberFormat = [_numberFormatter _measurementNumberFormat];
@@ -150,12 +169,6 @@ static const char *unitIdentifier(NSUnit *unit)
     NSString *formatted = [[[NSString alloc] initWithCharacters:buffer length:length] autorelease];
     free(buffer);
     if (unitOnly) return [formatted substringWithRange:NSMakeRange(unitStart, unitEnd - unitStart)];
-    if ((_unitOptions & NSMeasurementFormatterUnitOptionsTemperatureWithoutUnit) &&
-        [unit isKindOfClass:[NSUnitTemperature class]] && ![unit isEqual:[NSUnitTemperature kelvin]]) {
-        NSString *number = [_numberFormatter stringFromNumber:[NSNumber numberWithDouble:value]];
-        if (!number) [NSException raise:NSInternalInconsistencyException format:@"Unable to format measurement number"];
-        return [number stringByAppendingString:@"°"];
-    }
     return formatted;
 }
 
@@ -173,20 +186,17 @@ static const char *unitIdentifier(NSUnit *unit)
             NSString *country = [_locale objectForKey:NSLocaleCountryCode];
             unit = [country isEqualToString:@"US"] ? [NSUnitTemperature fahrenheit] : [NSUnitTemperature celsius];
         } else if ([unit isKindOfClass:[NSUnitLength class]]) {
-            BOOL metric = [[_locale objectForKey:NSLocaleUsesMetricSystem] boolValue];
+            BOOL metric = _NSMeasurementUsesMetricLength([[_locale localeIdentifier] UTF8String]);
             unit = metric ? [NSUnitLength kilometers] : [NSUnitLength miles];
         }
     }
     if ((_unitOptions & NSMeasurementFormatterUnitOptionsNaturalScale) && [unit isKindOfClass:[NSUnitLength class]]) {
-        double meters = fabs([[measurement measurementByConvertingToUnit:[NSUnitLength meters]] doubleValue]);
-        BOOL metric = (_unitOptions & NSMeasurementFormatterUnitOptionsProvidedUnit) ?
-            ([unit isEqual:[NSUnitLength kilometers]] || [unit isEqual:[NSUnitLength meters]] ||
-             [unit isEqual:[NSUnitLength centimeters]] || [unit isEqual:[NSUnitLength millimeters]]) :
-            [[_locale objectForKey:NSLocaleUsesMetricSystem] boolValue];
-        if (metric) unit = meters >= 1000 ? [NSUnitLength kilometers] : meters >= 1 || meters == 0 ?
-            [NSUnitLength meters] : meters >= .01 ? [NSUnitLength centimeters] : [NSUnitLength millimeters];
-        else unit = meters >= 1609.344 ? [NSUnitLength miles] : meters >= .3048 || meters == 0 ?
-            [NSUnitLength feet] : [NSUnitLength inches];
+        double meters = [[measurement measurementByConvertingToUnit:[NSUnitLength meters]] doubleValue];
+        int scale = naturalLengthScale(unit);
+        if (scale == 1) unit = meters >= 1000 ? [NSUnitLength kilometers] : meters > .001 ?
+            [NSUnitLength meters] : [NSUnitLength millimeters];
+        else if (scale == 2) unit = meters >= 804.672 ? [NSUnitLength miles] : meters > 274.32 ?
+            [NSUnitLength yards] : meters > 1.9812 ? [NSUnitLength feet] : [NSUnitLength inches];
     }
     if (![[measurement unit] isEqual:unit]) measurement = [measurement measurementByConvertingToUnit:unit];
     return [self _stringFromValue:[measurement doubleValue] unit:unit unitOnly:NO];

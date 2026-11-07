@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+int _NSMeasurementUsesMetricLength(const char *locale);
+
 // Caller owns the returned UTF-16 buffer. Fields are UTF-16 offsets.
 // A NULL numeric formatter requests the standalone localized unit display name.
 UChar *_NSMeasurementFormat(const char *locale, const char *unit, int style,
