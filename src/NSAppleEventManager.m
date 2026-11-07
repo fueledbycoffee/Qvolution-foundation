@@ -1,6 +1,7 @@
 #import <Foundation/NSAppleEventManager.h>
 #import <Foundation/NSMethodSignature.h>
 #import <Foundation/NSInvocation.h>
+#include <stdlib.h>
 
 static NSAppleEventManager* instance = nil;
 
@@ -17,7 +18,7 @@ static NSAppleEventManager* instance = nil;
 }
 
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    return [NSMethodSignature signatureWithObjCTypes: "v@:"];
+    return [NSMethodSignature signatureWithObjCTypes: "@@:"];
 }
 
 - (void)forwardInvocation:(NSInvocation *)anInvocation {
