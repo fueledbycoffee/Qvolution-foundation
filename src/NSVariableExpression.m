@@ -121,7 +121,7 @@ static NSString * const NSVariableKey = @"NSVariable";
 
     if (value == [NSNull null] || ![value isKindOfClass:[NSExpression class]])
     {
-        return [NSExpression expressionForConstantValue:nil];
+        return [NSExpression expressionForConstantValue:value == [NSNull null] ? nil : value];
     }
 
     return value;
