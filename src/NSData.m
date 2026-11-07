@@ -1120,7 +1120,8 @@ static uint8_t base64DecodeLookup[256] =
         [self release];
         return nil;
     }
-    __block NSUInteger outpos = 0, j = 0;
+    __block NSUInteger outpos = 0, j = 0, validCount = 0, paddingCount = 0;
+    __block BOOL invalid = NO;
 
     size_t (^convert)(uint8_t *, size_t, uint8_t *) = ^ size_t (uint8_t *accumulated, size_t naccum, uint8_t *outbuf)
     {
@@ -1141,11 +1142,17 @@ static uint8_t base64DecodeLookup[256] =
             // Die if we're not ignoring unknown characters.
             if (decode == xx && (options & NSDataBase64DecodingIgnoreUnknownCharacters) == 0)
             {
-                *stop = YES, j = 1; // use as sentinel
+                *stop = YES, invalid = YES;
                 return;
             }
-            else if (decode != EQ && decode != xx) // always ignore padding
+            else if (decode == EQ)
             {
+                paddingCount++;
+            }
+            else if (decode != xx)
+            {
+                if (paddingCount) { *stop = YES; invalid = YES; return; }
+                validCount++;
                 acc_bytes[j++] = decode;
                 if (j >= 4)
                 {
@@ -1155,7 +1162,7 @@ static uint8_t base64DecodeLookup[256] =
             }
         }
     }];
-    if (j != 1) // success
+    if (!invalid && j != 1 && (validCount + paddingCount) % 4 == 0)
     {
         outpos += convert(acc_bytes, j, outbytes + outpos); // harmless for j == 0
         NSAssert(outpos <= outputLen, @"Overran the output buffer!"); // outputLen is not exact
