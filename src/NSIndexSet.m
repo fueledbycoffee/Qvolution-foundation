@@ -2018,27 +2018,59 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
     if (delta == 0 || IS_EMPTY(self)) return;
     NSUInteger amount = delta > 0 ? (NSUInteger)delta : 0 - (NSUInteger)delta;
     NSUInteger keepEnd = delta > 0 ? index : (index > amount ? index - amount : 0);
-    NSMutableIndexSet *shifted = [[NSMutableIndexSet alloc] init];
+    __block RangeList *ranges = NULL;
+    void (^appendRange)(NSRange) = ^(NSRange range) {
+        RangeList *tail = ranges ? ranges->prev : NULL;
+        if (tail && NSMaxRange(tail->range) >= range.location)
+        {
+            tail->range.length = MAX(NSMaxRange(tail->range), NSMaxRange(range)) - tail->range.location;
+            return;
+        }
+        RangeList *entry = malloc(sizeof(*entry));
+        if (entry == NULL)
+            [NSException raise:NSMallocException format:@"cannot allocate shifted index range"];
+        entry->range = range;
+        DL_APPEND(ranges, entry);
+    };
     @try
     {
         [self enumerateRangesUsingBlock:^(NSRange range, BOOL *stop) {
             NSUInteger end = NSMaxRange(range);
             if (range.location < keepEnd)
-                [shifted addIndexesInRange:NSMakeRange(range.location, MIN(end, keepEnd) - range.location)];
+                appendRange(NSMakeRange(range.location, MIN(end, keepEnd) - range.location));
             NSUInteger start = MAX(range.location, index);
             if (delta < 0) start = MAX(start, amount);
             if (start >= end) return;
             if (delta > 0 && end > NSNotFound - amount)
                 [NSException raise:NSRangeException format:@"shift would push an index past NSNotFound - 1"];
             NSUInteger destination = delta > 0 ? start + amount : start - amount;
-            [shifted addIndexesInRange:NSMakeRange(destination, end - start)];
+            appendRange(NSMakeRange(destination, end - start));
         }];
         [self removeAllIndexes];
-        [self addIndexes:shifted];
+        if (ranges != NULL)
+        {
+            SET_EMPTY(self, NO);
+            SET_HAS_SINGLE_RANGE(self, ranges->next == NULL);
+            if (HAS_SINGLE_RANGE(self))
+            {
+                SET_SINGLE_RANGE(self, ranges->range);
+                free(ranges);
+            }
+            else
+            {
+                RESET_CACHE(self);
+                SET_MULTIPLE_RANGE_DATA(self, ranges);
+            }
+            ranges = NULL;
+        }
     }
     @finally
     {
-        [shifted release];
+        RangeList *entry, *next;
+        DL_FOREACH_SAFE(ranges, entry, next)
+        {
+            free(entry);
+        }
     }
 }
 

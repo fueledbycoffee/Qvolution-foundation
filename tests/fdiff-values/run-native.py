@@ -75,13 +75,15 @@ s=source(P,o.foundation,'src/NSIndexSet.m')
 macros=region(s,'typedef struct RangeList {','@implementation NSIndexSet')
 header=source(P,o.foundation,'include/Foundation/NSIndexSet.h')
 declaration=region(header,'@interface NSIndexSet :','+ (instancetype)indexSet;').replace('<NSCopying, NSMutableCopying, NSCoding>','').replace('@package','@public')
-declaration+='- (void)enumerateRangesUsingBlock:(void (^)(NSRange,BOOL *))block;\n- (RangeList *)_pointerToRangeBeforeOrContainingIndex:(NSUInteger)i;\n@end\n@interface NSMutableIndexSet : NSIndexSet\n- (void)addIndexesInRange:(NSRange)r; - (void)removeIndexesInRange:(NSRange)r; - (void)removeAllIndexes; - (void)addIndexes:(NSIndexSet *)s; - (void)shiftIndexesStartingAtIndex:(NSUInteger)i by:(NSInteger)d;\n@end\n'
+declaration+='- (void)enumerateRangesUsingBlock:(void (^)(NSRange,BOOL *))block;\n- (RangeList *)_pointerToRangeBeforeOrContainingIndex:(NSUInteger)i;\n@end\n@interface NSMutableIndexSet : NSIndexSet\n- (void)addIndexesInRange:(NSRange)r; - (void)removeIndexesInRange:(NSRange)r; - (void)removeAllIndexes; - (void)addIndex:(NSUInteger)i; - (void)addIndexes:(NSIndexSet *)s; - (void)shiftIndexesStartingAtIndex:(NSUInteger)i by:(NSInteger)d;\n@end\n'
 (o.output/'index-declarations.inc').write_text(macros+declaration)
 start='// Shift a range, possibly truncating at 0' if '// Shift a range, possibly truncating at 0' in s else '- (void)shiftIndexesStartingAtIndex:'
 (o.output/'index-shift.inc').write_text(region(s,start,'\n@end'))
 (o.output/'index-add.inc').write_text(region(s,'static inline void addIndexesInRange(', 'static inline CFComparisonResult NSIndexSetCompareEntry'))
 (o.output/'index-remove.inc').write_text(region(s,'- (void)removeIndexesInRange:', start))
 (o.output/'index-merge.inc').write_text(region(s,'- (void)_mergeOverlappingRangesStartingAtIndex:', '- (void)_setContentToContentFromIndexSet:'))
+(o.output/'index-add-set.inc').write_text(region(s,'- (void)addIndexes:(NSIndexSet *)indexSet', '- (void)removeIndexes:(NSIndexSet *)indexSet'))
+(o.output/'index-clear.inc').write_text(region(s,'- (void)removeAllIndexes', '- (void)addIndex:'))
 s=source(P.parent/'corefoundation',o.corefoundation,'NSArray.m')
 (o.output/'array-join.inc').write_text(region(s,'- (NSString *)componentsJoinedByString:', '- (BOOL)containsObject:'))
 command=['/usr/bin/clang','-g','-O0','-fblocks','-Xclang','-fobjc-subscripting-legacy-runtime','-fobjc-exceptions','-fexceptions','-fconstant-string-class=NSConstantString','-Wno-objc-method-access','-Wno-incompatible-pointer-types','-Wno-protocol','-Wno-incomplete-implementation','-Wno-int-conversion','-I'+str(P/'src'),'-I'+str(o.output),'-I'+subprocess.check_output(['gcc','-print-file-name=include'],text=True).strip(),str(P/'tests/fdiff-values/native.m'),'-l:libobjc.so.4','-lm','-licui18n','-licuuc','-o',str(o.output/'fixture')]

@@ -12,8 +12,17 @@ The runner reads the selected revisions from this Foundation clone and its sibli
 exit 1 before, and 0 after. The fixtures compile production JSON parser/validation,
 Decimal math, KVC methods, ICU regex methods, Base64 decoding and selected value,
 formatter, predicate, index shifting and CF bridge methods.
-Index storage primitives use a bounded test backend; 5,103 small index-set
-shift cases exercise the complete production shifting method, before and after.
+Index setup uses a bounded test backend; 5,103 small index-set shift cases
+exercise the complete production shifting method, before and after. The actual
+production addIndexes: and removeAllIndexes methods are included, so expansion
+into per-index insertion cannot be hidden by a range-enumerating double. Dense
+and 4,096-fragment cases assert zero individual insertions and insertion searches,
+with at most one shift allocation per output range. Allocation failure and
+overflow after partial output construction must leave the original set intact.
+ReviewEdges.m preserves the reviewer public-API reproducer, including its
+unrelated baseline Base64 facts. IndexShiftRanges.m adds public compressed ranges
+of 10,000 and one billion indexes, fragmented ranges, cache reuse, range merging
+and empty-result checks for qv-diff-batch. Native cache/lifetime remain doubles.
 
 Storage, retain/release, class allocation, scanner failure and formatter range
 parsing are explicit test doubles. The scanner double always fails to isolate

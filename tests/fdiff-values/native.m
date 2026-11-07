@@ -176,7 +176,7 @@ static void NSGetSizeAndAlignment(const char *t, NSUInteger *s, void *a) { asser
 - (id)parseUTF8JSONData:(id)d skipBytes:(NSUInteger)n options:(NSUInteger)o;
 - (void)setError:(NSError *)e; - (NSError *)error;
 @end
-static id NSLocaleDecimalSeparator, NSCocoaErrorDomain, NSLocalizedDescriptionKey, NSInvalidArgumentException, NSRangeException;
+static id NSLocaleDecimalSeparator, NSCocoaErrorDomain, NSLocalizedDescriptionKey, NSInvalidArgumentException, NSRangeException, NSMallocException;
 @implementation NSObject
 + (id)alloc { return class_createInstance(self,0); }
 + (id)allocWithZone:(void *)zone { return [self alloc]; }
@@ -441,19 +441,29 @@ static void NSIndexSetPurgeCache(NSIndexSetCache *c) {}
 static void indexBits(NSIndexSet *s, BOOL bits[128]) { memset(bits,0,128);if(IS_EMPTY(s))return;if(HAS_SINGLE_RANGE(s)){for(NSUInteger i=SINGLE_RANGE(s).location;i<MIN(NSMaxRange(SINGLE_RANGE(s)),128);i++)bits[i]=YES;}else for(RangeList *r=MULTIPLE_RANGE_DATA(s);r;r=r->next)for(NSUInteger i=r->range.location;i<MIN(NSMaxRange(r->range),128);i++)bits[i]=YES; }
 static void setIndexBits(NSIndexSet *s,BOOL bits[128]) { SET_EMPTY(s,YES);SET_HAS_SINGLE_RANGE(s,NO);MULTIPLE_RANGE_DATA(s)=NULL;SET_CACHE_VALID(s,NO);for(NSUInteger i=0;i<128;){if(!bits[i]){i++;continue;}NSUInteger start=i;while(i<128 && bits[i])i++;RangeList *r=calloc(1,sizeof(*r));r->range=NSMakeRange(start,i-start);DL_APPEND(MULTIPLE_RANGE_DATA(s),r);SET_EMPTY(s,NO);}RangeList *r=MULTIPLE_RANGE_DATA(s);if(r && !r->next){SET_SINGLE_RANGE(s,r->range);SET_HAS_SINGLE_RANGE(s,YES);} }
 #include "index-add.inc"
+static NSUInteger individualIndexAdditions, indexRangeSearches;
+static NSUInteger shiftAllocations, failShiftAllocation;
+static void *shiftMalloc(size_t size) { shiftAllocations++;return failShiftAllocation==shiftAllocations?NULL:malloc(size); }
 @implementation NSIndexSet
 - (BOOL)_isEmpty { return IS_EMPTY(self); }
+- (BOOL)_hasSingleRange { return HAS_SINGLE_RANGE(self); }
+- (NSRange)_singleRange { return SINGLE_RANGE(self); }
+- (NSUInteger)firstIndex { return IS_EMPTY(self)?NSNotFound:HAS_SINGLE_RANGE(self)?SINGLE_RANGE(self).location:MULTIPLE_RANGE_DATA(self)->range.location; }
+- (NSUInteger)indexGreaterThanIndex:(NSUInteger)i { __block NSUInteger result=NSNotFound;[self enumerateRangesUsingBlock:^(NSRange r,BOOL *stop){if(i<r.location){result=r.location;*stop=YES;}else if(i<NSMaxRange(r)-1){result=i+1;*stop=YES;}}];return result; }
 #include "index-merge.inc"
 - (id)init { SET_EMPTY(self,YES);return self; }
 - (void)enumerateRangesUsingBlock:(void (^)(NSRange,BOOL *))block { BOOL stop=NO;if(IS_EMPTY(self))return;if(HAS_SINGLE_RANGE(self))block(SINGLE_RANGE(self),&stop);else for(RangeList *r=MULTIPLE_RANGE_DATA(self);r && !stop;r=r->next)block(r->range,&stop); }
-- (RangeList *)_pointerToRangeBeforeOrContainingIndex:(NSUInteger)i { RangeList *last=NULL;for(RangeList *r=MULTIPLE_RANGE_DATA(self);r && r->range.location<=i;r=r->next)last=r;return last; }
+- (RangeList *)_pointerToRangeBeforeOrContainingIndex:(NSUInteger)i { indexRangeSearches++;RangeList *last=NULL;for(RangeList *r=MULTIPLE_RANGE_DATA(self);r && r->range.location<=i;r=r->next)last=r;return last; }
 @end
 @implementation NSMutableIndexSet
 - (void)addIndexesInRange:(NSRange)r { addIndexesInRange(self,r); }
 #include "index-remove.inc"
-- (void)removeAllIndexes { SET_EMPTY(self,YES); }
-- (void)addIndexes:(NSIndexSet *)s { [s enumerateRangesUsingBlock:^(NSRange r,BOOL *stop){[self addIndexesInRange:r];}]; }
+#include "index-clear.inc"
+- (void)addIndex:(NSUInteger)i { individualIndexAdditions++;[self addIndexesInRange:NSMakeRange(i,1)]; }
+#include "index-add-set.inc"
+#define malloc shiftMalloc
 #include "index-shift.inc"
+#undef malloc
 @end
 @interface RoundingBehavior : NSObject @end
 @implementation RoundingBehavior
@@ -576,6 +586,30 @@ indexDone: ;
   [split addIndexesInRange:NSMakeRange(1,1)];[split addIndexesInRange:NSMakeRange(3,8)];
   [split removeIndexesInRange:NSMakeRange(5,2)];
   __block NSUInteger end=0,count=0;[split enumerateRangesUsingBlock:^(NSRange r,BOOL *stop){CHECK(r.location>=end);end=NSMaxRange(r);count+=r.length;}];CHECK(count==7);
+
+  // Reviewer reproducer: two compressed ranges must never expand into indexes.
+  NSMutableIndexSet *dense=[NSMutableIndexSet new];
+  [dense addIndexesInRange:NSMakeRange(0,10000)];[dense addIndexesInRange:NSMakeRange(20000,10000)];
+  shiftAllocations=individualIndexAdditions=indexRangeSearches=0;[dense shiftIndexesStartingAtIndex:0 by:1];
+  CHECK(individualIndexAdditions==0);CHECK(indexRangeSearches==0);
+  CHECK(shiftAllocations<=2);
+  CHECK(MULTIPLE_RANGE_DATA(dense)->range.location==1 && MULTIPLE_RANGE_DATA(dense)->range.length==10000);
+  CHECK(MULTIPLE_RANGE_DATA(dense)->next->range.location==20001);
+  // Direct ordered setup avoids measuring insertion during fixture construction.
+  NSMutableIndexSet *fragmented=[NSMutableIndexSet new];SET_EMPTY(fragmented,NO);RESET_CACHE(fragmented);
+  for(NSUInteger i=0;i<4096;i++){RangeList *r=calloc(1,sizeof(*r));r->range=NSMakeRange(3*i,1);DL_APPEND(MULTIPLE_RANGE_DATA(fragmented),r);}
+  shiftAllocations=individualIndexAdditions=indexRangeSearches=0;[fragmented shiftIndexesStartingAtIndex:0 by:1];
+  CHECK(individualIndexAdditions==0);CHECK(indexRangeSearches==0);
+  CHECK(shiftAllocations<=4096);
+  NSUInteger ordinal=0;for(RangeList *r=MULTIPLE_RANGE_DATA(fragmented);r;r=r->next,ordinal++)CHECK(r->range.location==3*ordinal+1 && r->range.length==1);CHECK(ordinal==4096);
+  RangeList *originalRanges=MULTIPLE_RANGE_DATA(dense);
+  failShiftAllocation=2;shiftAllocations=0;BOOL raised=NO;
+  @try{[dense shiftIndexesStartingAtIndex:0 by:1];}@catch(id e){raised=YES;}
+  failShiftAllocation=0;CHECK(raised);CHECK(MULTIPLE_RANGE_DATA(dense)==originalRanges && originalRanges->range.location==1 && originalRanges->next->range.location==20001);
+  NSMutableIndexSet *overflow=[NSMutableIndexSet new];[overflow addIndexesInRange:NSMakeRange(1,2)];[overflow addIndexesInRange:NSMakeRange(NSNotFound-2,1)];
+  originalRanges=MULTIPLE_RANGE_DATA(overflow);raised=NO;
+  @try{[overflow shiftIndexesStartingAtIndex:0 by:3];}@catch(id e){raised=YES;}
+  CHECK(raised);CHECK(MULTIPLE_RANGE_DATA(overflow)==originalRanges && originalRanges->range.location==1 && originalRanges->next->range.location==NSNotFound-2);
 
  } else if(!strcmp(section,"decimal-display")) {
   unsigned long long integer=9223372036854776000ULL;NSDecimal d={0};d._length=4;memcpy(d._mantissa,&integer,sizeof(integer));
