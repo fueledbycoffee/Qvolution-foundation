@@ -169,9 +169,17 @@ int main(int argc,char **argv) {
   NSRange invalid[]={NSMakeRange(0,2),NSMakeRange(2,0),NSMakeRange(1,1),NSMakeRange(ULONG_MAX,2),NSMakeRange(1,ULONG_MAX)};
   for(unsigned obj=0;obj<2;obj++)for(unsigned out=0;out<2;out++) {
    id s=receivers[obj];NSRange r,*rp=out?&r:NULL;
+   // Rung 4: verify8 NSAttributedStringReview macOS output. NULL output
+   // ignores the limit; with output, only the wrapped unsigned end is checked.
    for(unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);i++) {
-    THROWS([s attributesAtIndex:0 longestEffectiveRange:rp inRange:invalid[i]],NSRangeException);
-    THROWS([s attribute:@"k" atIndex:0 longestEffectiveRange:rp inRange:invalid[i]],NSRangeException);
+    for(unsigned selector=0;selector<2;selector++) {
+     BOOL caught=NO;
+     @try {
+      if(selector)(void)[s attribute:@"k" atIndex:0 longestEffectiveRange:rp inRange:invalid[i]];
+      else (void)[s attributesAtIndex:0 longestEffectiveRange:rp inRange:invalid[i]];
+     } @catch(NSException *e) { CHECK(e->name==NSRangeException);caught=YES; }
+     CHECK(caught==(out && i<3));
+    }
    }
    NSRange valid[]={NSMakeRange(0,1),NSMakeRange(0,0),NSMakeRange(1,0)};
    for(unsigned i=0;i<3;i++) {
@@ -182,7 +190,7 @@ int main(int argc,char **argv) {
    THROWS([s attributesAtIndex:1 longestEffectiveRange:rp inRange:NSMakeRange(1,0)],NSRangeException);
    THROWS([s attribute:@"k" atIndex:1 longestEffectiveRange:rp inRange:NSMakeRange(1,0)],NSRangeException);
   }
-  puts("longest range limits: bridge/subclass, output/NULL, overflow, valid empty/end limits");
+  puts("longest range limits: Mac exception matrix, bridge/subclass, output/NULL, wrapped end, empty/end limits");
  }
  if(argc==1||!strcmp(argv[1],"types")) {
   __NSCFAttributedString *s=runs(6);CHECK([s isKindOfClass:[NSAttributedString class]]);CHECK(![s isKindOfClass:[NSMutableAttributedString class]]);

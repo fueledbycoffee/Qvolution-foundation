@@ -284,15 +284,15 @@ static inline BOOL _NSAttrValuesEqual(id val1, id val2) {
 
 - (NSDictionary *)attributesAtIndex:(NSUInteger)index longestEffectiveRange:(NSRangePointer)aRange inRange:(NSRange)rangeLimit
 {
-    NSUInteger length = [self length];
-    if (rangeLimit.location > length || rangeLimit.length > length - rangeLimit.location)
-    {
-        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, length];
-    }
     NSDictionary *retVal = [self attributesAtIndex:index effectiveRange:aRange];
     if (aRange == nil)
     {
         return retVal;
+    }
+    // macOS ignores the limit without an output and checks its unsigned end.
+    if (rangeLimit.location + rangeLimit.length > [self length])
+    {
+        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, [self length]];
     }
     NSUInteger min = aRange->location;  // inclusive end
     NSUInteger max = aRange->location + aRange->length;  // exclusive end
@@ -319,15 +319,15 @@ static inline BOOL _NSAttrValuesEqual(id val1, id val2) {
 
 - (id)attribute:(NSString *)attrName atIndex:(NSUInteger)index longestEffectiveRange:(NSRangePointer)aRange inRange:(NSRange)rangeLimit
 {
-    NSUInteger length = [self length];
-    if (rangeLimit.location > length || rangeLimit.length > length - rangeLimit.location)
-    {
-        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, length];
-    }
     id retVal = [self attribute:attrName atIndex:index effectiveRange:aRange];
     if (aRange == nil)
     {
         return retVal;
+    }
+    // macOS ignores the limit without an output and checks its unsigned end.
+    if (rangeLimit.location + rangeLimit.length > [self length])
+    {
+        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, [self length]];
     }
     NSUInteger min = aRange->location;  // inclusive end
     NSUInteger max = aRange->location + aRange->length;  // exclusive end
