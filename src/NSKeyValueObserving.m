@@ -1570,6 +1570,7 @@ void _NSKeyValuePushPendingNotificationsPerThread(NSObject *originalObservable, 
     pendingNotification->observer = [observance.observer retain];
     pendingNotification->keyOrKeys = [keyOrKeys copy]; //even if it is a set we want to avoid it being mutated out from under us, so copy. 
     pendingNotification->reserved = kvoTSD->nextIsObservationInfo;
+    kvoTSD->nextIsObservationInfo = NO;
     pendingNotification->observance = [observance retain];
     pendingNotification->observationInfo = [kvoTSD->implicitObservanceAdditionInfoOrObservationInfo.observationInfo retain];
     pendingNotification->changeDetails.kind = changeDetails.kind;
@@ -1698,13 +1699,11 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
         _NSKVOPendingNotificationRelease(NULL, delivered);
         result->relevantNotification = NULL;
         result->relevantNotificationIndex = deliveredIndex;
+        // The first entry pushed by a will-change closes this delivery batch.
+        // Earlier entries belong to an outer change, even for the same key.
         if (temp)
         {
-            #warning TODO: This return breaks having multiple observers of the same object & key. Work out what it's meant to do!
-            // AFAICT, _NSKeyValuePushPendingNotificationsPerThread is currently always setting reserved to YES.
-            // The second call to this function within the same _NSKeyValueDidChange call would always return NO.
-            // This seems broken as ultimately all NSKVOPendingNotificationInfo objects should get popped.
-            //return NO;
+            return NO;
         }
         cursor = result->relevantNotificationIndex;
     }
@@ -1741,11 +1740,12 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
             {
                 // The array normally holds the only reference, so removing the entry frees it:
                 // look at the count first, never at the entry afterwards.
-                // GUESS (rung 6): once a dead entry is gone keep scanning; stop only when
-                // somebody else (an outer did's delivery hold) still owns the entry.
+                // A removed observer still closes its will-change batch. An entry held
+                // by another delivery also remains a boundary for this scan.
                 BOOL lastReference = (pendingNotification->retainCount == 1);
+                BOOL firstInBatch = pendingNotification->reserved;
                 CFArrayRemoveValueAtIndex(result->pendingNotifications, cursor);
-                if (lastReference)
+                if (lastReference && !firstInBatch)
                 {
                     continue;
                 }
