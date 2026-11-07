@@ -115,24 +115,33 @@ typedef __NSCFAttributedString __CFAttributedString;
 RUN_ACCESSOR
 static id CFAttributedStringGetAttributes(id s,NSUInteger i,NSRange *r) { return _CFRunArrayObjectAtIndex(s,i,r); }
 static id CFAttributedStringGetAttribute(id s,NSUInteger i,id key,NSRange *r) { return ((NSDictionary *)CFAttributedStringGetAttributes(s,i,r))->value; }
+static id CFAttributedStringGetAttributesAndLongestEffectiveRange(id s,NSUInteger i,NSRange limit,NSRange *r) { id d=CFAttributedStringGetAttributes(s,i,r);if(r)*r=NSIntersectionRange(*r,limit);return d; }
+static id CFAttributedStringGetAttributeAndLongestEffectiveRange(id s,NSUInteger i,id key,NSRange limit,NSRange *r) { id d=CFAttributedStringGetAttribute(s,i,key,r);if(r)*r=NSIntersectionRange(*r,limit);return d; }
+static BOOL _NSAttrValuesEqual(id a,id b) { return a==b; }
 static BOOL _CFAttributedStringIsMutable(id s) { return ((__NSCFAttributedString *)s)->mutableFlag; }
 static id lastAttributes;
 static void CFAttributedStringSetAttributes(id s,NSRange r,id d,BOOL clear) { assert(d);lastAttributes=d; }
 RANGE_HELPERS
 @implementation NSAttributedString
 ENUM_METHODS
+GENERIC_LONGEST_METHODS
 @end
 @implementation __NSCFAttributedString
 - (NSUInteger)length { return count; }
 CF_ATTR_METHODS
-- (id)attributesAtIndex:(NSUInteger)i longestEffectiveRange:(NSRange *)r inRange:(NSRange)limit { id d=[self attributesAtIndex:i effectiveRange:r];if(r)*r=NSIntersectionRange(*r,limit);return d; }
-- (id)attribute:(id)key atIndex:(NSUInteger)i longestEffectiveRange:(NSRange *)r inRange:(NSRange)limit { id d=[self attribute:key atIndex:i effectiveRange:r];if(r)*r=NSIntersectionRange(*r,limit);return d; }
+CF_LONGEST_METHODS
 @end
 static __NSCFAttributedString *runs(NSUInteger n) {
  __NSCFAttributedString *s=[__NSCFAttributedString alloc];s->count=s->_runArrayCount=n;
  if(n) { s->_attributes=calloc(n,sizeof(void *));__CFRunArrayItem *r=calloc(1,sizeof(*r));r->_range=NSMakeRange(0,n);r->_dictionary=[NSDictionary dictionary];for(NSUInteger i=0;i<n;i++)s->_attributes[i]=r; }
  return s;
 }
+@interface GenericAttributedString:NSAttributedString { @public __NSCFAttributedString *backing; } @end
+@implementation GenericAttributedString
+- (NSUInteger)length { return [backing length]; }
+- (id)attributesAtIndex:(NSUInteger)i effectiveRange:(NSRange *)r { return [backing attributesAtIndex:i effectiveRange:r]; }
+- (id)attribute:(id)key atIndex:(NSUInteger)i effectiveRange:(NSRange *)r { return [backing attribute:key atIndex:i effectiveRange:r]; }
+@end
 @interface __NSPlaceholderAttributedString:NSAttributedString @end
 static id mutablePlaceholder;
 static id CFAttributedStringCreate(void *a,id s,id attrs) { return runs([s length]); }
@@ -152,6 +161,28 @@ int main(int argc,char **argv) {
   THROWS([empty attribute:@"k" atIndex:0 effectiveRange:NULL],NSRangeException);
   id one=runs(1);THROWS([one attributesAtIndex:1 effectiveRange:NULL],NSRangeException);
   puts("empty/end boundary exercised");
+ }
+ if(argc==1||!strcmp(argv[1],"limits")) {
+  __NSCFAttributedString *one=runs(1);
+  GenericAttributedString *generic=[GenericAttributedString alloc];generic->backing=one;
+  id receivers[]={one,generic};
+  NSRange invalid[]={NSMakeRange(0,2),NSMakeRange(2,0),NSMakeRange(1,1),NSMakeRange(ULONG_MAX,2),NSMakeRange(1,ULONG_MAX)};
+  for(unsigned obj=0;obj<2;obj++)for(unsigned out=0;out<2;out++) {
+   id s=receivers[obj];NSRange r,*rp=out?&r:NULL;
+   for(unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);i++) {
+    THROWS([s attributesAtIndex:0 longestEffectiveRange:rp inRange:invalid[i]],NSRangeException);
+    THROWS([s attribute:@"k" atIndex:0 longestEffectiveRange:rp inRange:invalid[i]],NSRangeException);
+   }
+   NSRange valid[]={NSMakeRange(0,1),NSMakeRange(0,0),NSMakeRange(1,0)};
+   for(unsigned i=0;i<3;i++) {
+    CHECK([s attributesAtIndex:0 longestEffectiveRange:rp inRange:valid[i]]!=nil);
+    (void)[s attribute:@"k" atIndex:0 longestEffectiveRange:rp inRange:valid[i]];
+    if(rp)CHECK(r.length==valid[i].length);
+   }
+   THROWS([s attributesAtIndex:1 longestEffectiveRange:rp inRange:NSMakeRange(1,0)],NSRangeException);
+   THROWS([s attribute:@"k" atIndex:1 longestEffectiveRange:rp inRange:NSMakeRange(1,0)],NSRangeException);
+  }
+  puts("longest range limits: bridge/subclass, output/NULL, overflow, valid empty/end limits");
  }
  if(argc==1||!strcmp(argv[1],"types")) {
   __NSCFAttributedString *s=runs(6);CHECK([s isKindOfClass:[NSAttributedString class]]);CHECK(![s isKindOfClass:[NSMutableAttributedString class]]);
@@ -180,6 +211,22 @@ int main(int argc,char **argv) {
   // Three runs: deletion of the current run must revisit its old location.
   s=runs(3);for(NSUInteger i=0;i<3;i++){__CFRunArrayItem *r=calloc(1,sizeof(*r));r->_range=NSMakeRange(i,1);r->_dictionary=[NSDictionary dictionary];s->_attributes[i]=r;}
   *calls=0;[s enumerateAttributesInRange:NSMakeRange(0,3) options:0 usingBlock:^(id v,NSRange r,BOOL *stop){CHECK(r.location==0&&r.length==1);(*calls)++;s->count--;s->_runArrayCount--;for(NSUInteger i=0;i<s->count;i++){s->_attributes[i]=s->_attributes[i+1];s->_attributes[i]->_range.location--;}}];CHECK(*calls==3&&s->count==0);
+ }
+ if(argc==1||!strcmp(argv[1],"reverse-delete")) {
+  for(unsigned selector=0;selector<2;selector++)for(unsigned shortRanges=0;shortRanges<2;shortRanges++)for(unsigned insert=0;insert<2;insert++) {
+   __NSCFAttributedString *s=runs(5);
+   for(NSUInteger i=0;i<5;i++){__CFRunArrayItem *r=calloc(1,sizeof(*r));r->_range=NSMakeRange(i,1);r->_dictionary=[NSDictionary alloc];((NSDictionary *)r->_dictionary)->value=(id)(uintptr_t)(i+1);s->_attributes[i]=r;}
+   unsigned callsStorage=0;unsigned *calls=&callsStorage;
+   void (^block)(id,NSRange,BOOL *)=^(id v,NSRange r,BOOL *stop){
+    CHECK(r.location==3-*calls&&r.length==1);(*calls)++;
+    if(insert){s->count++;}else{s->count--;s->_runArrayCount--;}
+   };
+   NSUInteger opts=NSAttributedStringEnumerationReverse|(shortRanges?NSAttributedStringEnumerationLongestEffectiveRangeNotRequired:0);
+   if(selector)[s enumerateAttribute:@"k" inRange:NSMakeRange(1,3) options:opts usingBlock:block];
+   else [s enumerateAttributesInRange:NSMakeRange(1,3) options:opts usingBlock:block];
+   CHECK(*calls==3);
+  }
+  puts("reverse enumeration: both selectors/options, current-run deletion/insertion, nonzero start");
  }
  printf("behavior-native: %u failures\n",failures);return failures?1:0;
 }

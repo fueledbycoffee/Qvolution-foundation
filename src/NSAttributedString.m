@@ -151,10 +151,11 @@ OBJC_PROTOCOL_IMPL_POP
             {
                 return;
             }
-            if (effRange.location == 0)
+            if (effRange.location <= limit)
             {
                 break;
             }
+            enumerationRange.length = effRange.location - limit;
             previous = effRange.location - 1;
         }
         return;
@@ -222,10 +223,11 @@ OBJC_PROTOCOL_IMPL_POP
             {
                 return;
             }
-            if (effRange.location == 0)
+            if (effRange.location <= limit)
             {
                 break;
             }
+            enumerationRange.length = effRange.location - limit;
             previous = effRange.location - 1;
         }
         return;
@@ -282,6 +284,11 @@ static inline BOOL _NSAttrValuesEqual(id val1, id val2) {
 
 - (NSDictionary *)attributesAtIndex:(NSUInteger)index longestEffectiveRange:(NSRangePointer)aRange inRange:(NSRange)rangeLimit
 {
+    NSUInteger length = [self length];
+    if (rangeLimit.location > length || rangeLimit.length > length - rangeLimit.location)
+    {
+        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, length];
+    }
     NSDictionary *retVal = [self attributesAtIndex:index effectiveRange:aRange];
     if (aRange == nil)
     {
@@ -312,6 +319,11 @@ static inline BOOL _NSAttrValuesEqual(id val1, id val2) {
 
 - (id)attribute:(NSString *)attrName atIndex:(NSUInteger)index longestEffectiveRange:(NSRangePointer)aRange inRange:(NSRange)rangeLimit
 {
+    NSUInteger length = [self length];
+    if (rangeLimit.location > length || rangeLimit.length > length - rangeLimit.location)
+    {
+        [NSException raise:NSRangeException format:@"range (%d,%d) beyond NSAttributedString bounds (%d)", rangeLimit.location, rangeLimit.length, length];
+    }
     id retVal = [self attribute:attrName atIndex:index effectiveRange:aRange];
     if (aRange == nil)
     {

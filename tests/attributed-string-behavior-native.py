@@ -22,6 +22,8 @@ parts={
  'RUN_ACCESSOR':method(run,'static CFDictionaryRef _CFRunArrayObjectAtIndex'),
  'RANGE_HELPERS':c[c.index('static BOOL _rangeCheckRange'):c.index('- (void)removeAttribute:')],
  'CF_ATTR_METHODS':'\n'.join(method(c,k) for k in ['- (NSDictionary *)attributesAtIndex:(NSUInteger)index effectiveRange:', '- (id)attribute:(NSString *)attrName atIndex:(NSUInteger)index effectiveRange:', '- (void)setAttributes:'])+'\n'+(method(c,'- (BOOL)isKindOfClass:') if '- (BOOL)isKindOfClass:' in c else ''),
+ 'GENERIC_LONGEST_METHODS':'\n'.join(method(f,k) for k in ['- (NSDictionary *)attributesAtIndex:(NSUInteger)index longestEffectiveRange:', '- (id)attribute:(NSString *)attrName atIndex:(NSUInteger)index longestEffectiveRange:']),
+ 'CF_LONGEST_METHODS':'\n'.join(method(c,k) for k in ['- (NSDictionary *)attributesAtIndex:(NSUInteger)index longestEffectiveRange:', '- (id)attribute:(NSString *)attrName atIndex:(NSUInteger)index longestEffectiveRange:']),
  'ENUM_METHODS':'\n'.join(method(f,k) for k in ['- (void)enumerateAttributesInRange:', '- (void)enumerateAttribute:']),
 }
 for k,v in parts.items():program=re.sub(r"\b"+k+r"\b",lambda m:v,program)
