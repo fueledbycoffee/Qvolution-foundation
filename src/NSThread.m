@@ -19,6 +19,7 @@
 #import <unistd.h>
 #import <objc/message.h>
 #import <execinfo.h>
+#import <Block.h>
 
 CFRunLoopRef _CFRunLoopGet0(pthread_t t);
 CFTypeRef _CFRunLoopGet2(CFRunLoopRef rl);
@@ -78,6 +79,30 @@ CF_PRIVATE
 @end
 
 
+CF_PRIVATE
+@interface _NSThreadBlockTarget : NSObject
+{
+@public
+    void (^block)(void);
+}
+- (void)invoke:(id)unused;
+@end
+
+@implementation _NSThreadBlockTarget
+
+- (void)invoke:(id)unused
+{
+    block();
+}
+
+- (void)dealloc
+{
+    Block_release(block);
+    [super dealloc];
+}
+
+@end
+
 @interface NSThread (Internal)
 - (BOOL)_setThreadPriority:(double)p;
 @end
@@ -112,6 +137,13 @@ static void NSThreadEnd(void *context)
 + (void)detachNewThreadSelector:(SEL)selector toTarget:(id)target withObject:(id)argument
 {
     NSThread *thread = [[NSThread alloc] initWithTarget:target selector:selector object:argument];
+    [thread start];
+    [thread release];
+}
+
++ (void)detachNewThreadWithBlock:(void (^)(void))block
+{
+    NSThread *thread = [[NSThread alloc] initWithBlock:block];
     [thread start];
     [thread release];
 }
@@ -222,6 +254,15 @@ static void NSThreadEnd(void *context)
         _selector = selector;
         _argument = [argument retain];
     }
+    return self;
+}
+
+- (id)initWithBlock:(void (^)(void))block
+{
+    _NSThreadBlockTarget *target = [[_NSThreadBlockTarget alloc] init];
+    target->block = Block_copy(block);
+    self = [self initWithTarget:target selector:@selector(invoke:) object:nil];
+    [target release];
     return self;
 }
 

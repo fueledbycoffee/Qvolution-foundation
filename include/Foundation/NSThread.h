@@ -45,6 +45,7 @@ typedef enum {
 
 @property (class, readonly, retain) NSThread *currentThread;
 + (void)detachNewThreadSelector:(SEL)selector toTarget:(id)target withObject:(id)argument;
++ (void)detachNewThreadWithBlock:(void (^)(void))block;
 + (BOOL)isMultiThreaded;
 + (void)sleepUntilDate:(NSDate *)date;
 + (void)sleepForTimeInterval:(NSTimeInterval)ti;
@@ -56,6 +57,7 @@ typedef enum {
 @property (class, readonly) BOOL isMainThread;
 @property (class, readonly, retain) NSThread *mainThread;
 - (id)init;
+- (id)initWithBlock:(void (^)(void))block;
 - (id)initWithTarget:(id)target selector:(SEL)selector object:(id)argument;
 - (NSMutableDictionary *)threadDictionary;
 - (double)threadPriority;
